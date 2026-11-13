@@ -124,12 +124,16 @@ int main (int argc, char* argv[])
     {
         // Left half: bright red stripe near the bottom. Right half: bright blue stripe near the top.
         juce::Image img (juce::Image::RGB, 400, 200, true);
-        juce::Graphics g (img);
-        g.fillAll (juce::Colours::black);
-        g.setColour (juce::Colours::red);
-        g.fillRect (0, 170, 200, 20);
-        g.setColour (juce::Colours::blue);
-        g.fillRect (200, 10, 200, 20);
+
+        {
+            // Scoped: on Windows the drawing only reaches the image when the Graphics is destroyed.
+            juce::Graphics g (img);
+            g.fillAll (juce::Colours::black);
+            g.setColour (juce::Colours::red);
+            g.fillRect (0, 170, 200, 20);
+            g.setColour (juce::Colours::blue);
+            g.fillRect (200, 10, 200, 20);
+        }
 
         const auto table = ImageSpectrum::analyse (img, "test");
         const int level = 2, rows = SpectrumTable::rowsForLevel (level);
