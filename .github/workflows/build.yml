@@ -1,0 +1,73 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            cmake_args: ""
+          - name: macOS
+            os: macos-latest
+            cmake_args: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          - name: Linux
+            os: ubuntu-latest
+            cmake_args: -G Ninja
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xvfb libasound2-dev libx11-dev libxext-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev \
+            libfreetype-dev libfontconfig1-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Test
+        run: |
+          run() { if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "$@"; else "$@"; fi; }
+          run build/PhotoToFrequencyRenderTest_artefacts/Release/PhotoToFrequencyRenderTest
+          run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
+            "build/PhotoToFrequency_artefacts/Release/VST3/Photo To Frequency.vst3"
+
+      - name: Package
+        run: |
+          mkdir dist
+          cd build/PhotoToFrequency_artefacts/Release
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # ditto keeps the bundle structure and code signature intact
+            mkdir stage && cp -R VST3/*.vst3 AU/*.component Standalone/*.app stage/
+            ditto -c -k stage "$GITHUB_WORKSPACE/dist/PhotoToFrequency-macOS.zip"
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            7z a "$GITHUB_WORKSPACE/dist/PhotoToFrequency-Windows.zip" ./VST3/*.vst3 ./Standalone/*.exe
+          else
+            tar czf "$GITHUB_WORKSPACE/dist/PhotoToFrequency-Linux.tar.gz" -C VST3 "Photo To Frequency.vst3" -C ../Standalone "Photo To Frequency"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhotoToFrequency-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
