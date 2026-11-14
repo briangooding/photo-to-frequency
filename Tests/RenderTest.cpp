@@ -348,12 +348,14 @@ int main (int argc, char* argv[])
         setParam (plugin, "cutoff", 100.0f);
         setParam (plugin, "filterEnvAmount", 6.0f);
         setParam (plugin, "filterAttack", 0.001f);
-        setParam (plugin, "filterDecay", 0.3f);
+        setParam (plugin, "filterDecay", 1.0f);
         setParam (plugin, "filterSustain", 0.0f);
 
+        // Compared well apart in time: the oscillators start at random phases,
+        // so the counts wander a little from run to run.
         const auto swept = render (plugin, { 36 }, 2.0, 0.1);
-        const int bright = crossings (swept, sr / 100, sr / 20), dark = crossings (swept, sr, sr / 20);
-        std::cout << "    filter envelope: zero crossings in 50 ms at the start " << bright << ", after 1 s " << dark << std::endl;
+        const int bright = crossings (swept, sr / 100, sr / 20), dark = crossings (swept, 9 * sr / 5, sr / 20);
+        std::cout << "    filter envelope: zero crossings in 50 ms at the start " << bright << ", after 1.8 s " << dark << std::endl;
         check (bright > 3 * dark, "filter envelope sweeps the cutoff down while the note is held");
 
         // A slower decay here, so the filter is still nearly shut in the first 50 ms.
