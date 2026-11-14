@@ -6,6 +6,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 
 namespace
 {
@@ -227,7 +228,7 @@ int main (int argc, char* argv[])
         check (other.getImageName() == "stripes.jpg", "garbage state is ignored");
     }
 
-   #if PTF_SPLIT
+   #if PTF_VARIANT >= 1
     //==========================================================================
     // The stripes picture is still loaded: red low stripe on the left half,
     // blue high stripe on the right half.
@@ -387,6 +388,136 @@ int main (int argc, char* argv[])
     }
    #endif
 
+   #if PTF_VARIANT >= 2
+    //==========================================================================
+    std::cout << "Freq: sub oscillator" << std::endl;
+    {
+        constexpr int sr = 48000;
+
+        // A black picture is silent, so anything heard is the sub oscillator.
+        juce::Image black (juce::Image::RGB, 64, 64, true);
+        plugin.setImage (black, "black");
+        setParam (plugin, "loop", (float) EngineParams::loop);
+
+        auto crossings = [&] (const juce::AudioBuffer<float>& audio)
+        {
+            int count = 0;
+            for (int n = sr / 2 + 1; n < sr / 2 + sr; ++n)
+                if ((audio.getSample (0, n - 1) < 0.0f) != (audio.getSample (0, n) < 0.0f))
+                    ++count;
+            return count;
+        };
+
+        check (measure (render (plugin, { 48 }, 2.0, 0.2)).peak < 1.0e-4f, "off by default: a black picture is silent");
+
+        // C3 is 130.8 Hz, so one octave down is 65.4 Hz: about 131 zero crossings a second.
+        setParam (plugin, "subOn", 1.0f);
+        setParam (plugin, "subLevel", 1.0f);
+        auto audio = render (plugin, { 48 }, 2.0, 0.2);
+        const int oneDown = crossings (audio);
+        const float level = audio.getRMSLevel (0, sr / 2, sr);
+        std::cout << "    one octave down: " << oneDown << " zero crossings a second, rms " << level << std::endl;
+        check (oneDown >= 129 && oneDown <= 133, "plays one octave below the note");
+        check (level > 0.1f, "is clearly audible");
+        check (std::abs (audio.getRMSLevel (0, sr / 2, sr) - audio.getRMSLevel (1, sr / 2, sr)) < 1.0e-4f, "is centred");
+
+        setParam (plugin, "subOctave", 1.0f);
+        const int twoDown = crossings (render (plugin, { 48 }, 2.0, 0.2));
+        std::cout << "    two octaves down: " << twoDown << " zero crossings a second" << std::endl;
+        check (twoDown >= 64 && twoDown <= 67, "or two octaves below");
+
+        setParam (plugin, "subLevel", 0.5f);
+        const float halfLevel = render (plugin, { 48 }, 2.0, 0.2).getRMSLevel (0, sr / 2, sr);
+        check (halfLevel > 0.45f * level && halfLevel < 0.55f * level, "level control scales it");
+
+        // It is not filtered: a high-pass well above it leaves it untouched.
+        setParam (plugin, "filterType", (float) EngineParams::highPass);
+        setParam (plugin, "cutoff", 5000.0f);
+        const float highPassed = render (plugin, { 48 }, 2.0, 0.2).getRMSLevel (0, sr / 2, sr);
+        check (std::abs (highPassed - halfLevel) < 0.02f * halfLevel, "ignores the filter");
+        setParam (plugin, "filterType", (float) EngineParams::lowPass);
+        setParam (plugin, "cutoff", 20000.0f);
+
+        // It follows the oscillator envelope.
+        setParam (plugin, "sustain", 0.0f);
+        setParam (plugin, "decay", 0.2f);
+        check (render (plugin, { 48 }, 2.0, 0.2).getRMSLevel (0, sr, sr / 2) < 1.0e-4f, "follows the oscillator envelope");
+        setParam (plugin, "sustain", 1.0f);
+
+        juce::MemoryBlock state;
+        plugin.getStateInformation (state);
+        std::unique_ptr<juce::AudioProcessor> otherBase (createPluginFilter());
+        auto& other = dynamic_cast<PhotoToFrequencyProcessor&> (*otherBase);
+        other.setStateInformation (state.getData(), (int) state.getSize());
+        check (other.apvts.getRawParameterValue ("subOn")->load() > 0.5f
+                && juce::roundToInt (other.apvts.getRawParameterValue ("subOctave")->load()) == 1,
+               "sub oscillator settings are restored from saved state");
+    }
+
+    std::cout << "Freq: picture panel follows the picture's shape" << std::endl;
+    {
+        auto panelAspect = [&] (int width, int height)
+        {
+            juce::Image image (juce::Image::RGB, width, height, true);
+            plugin.setImage (image, "shape");
+            std::unique_ptr<juce::AudioProcessorEditor> editor (plugin.createEditor());
+
+            for (auto* child : editor->getChildren())
+                if (auto* view = dynamic_cast<PictureView*> (child))
+                    return (float) view->getWidth() / (float) view->getHeight();
+
+            return 0.0f;
+        };
+
+        const float wide = panelAspect (900, 300), standard = panelAspect (600, 400), tall = panelAspect (400, 600), square = panelAspect (500, 500);
+        std::cout << "    panel width/height for 3:1 " << wide << ", 3:2 " << standard << ", 1:1 " << square << ", 2:3 " << tall << std::endl;
+        check (std::abs (wide - 3.0f) < 0.05f, "3:1 picture gets a 3:1 panel");
+        check (std::abs (standard - 1.5f) < 0.03f, "3:2 picture gets a 3:2 panel");
+        check (std::abs (square - 1.0f) < 0.02f, "square picture gets a square panel");
+        check (std::abs (tall - 0.667f) < 0.02f, "2:3 portrait picture gets a 2:3 panel");
+
+        // And it keeps that shape when the window is resized.
+        juce::Image image (juce::Image::RGB, 600, 400, true);
+        plugin.setImage (image, "shape");
+        std::unique_ptr<juce::AudioProcessorEditor> editor (plugin.createEditor());
+        editor->setSize (1500, 1300);
+
+        for (auto* child : editor->getChildren())
+            if (auto* view = dynamic_cast<PictureView*> (child))
+                check (std::abs ((float) view->getWidth() / (float) view->getHeight() - 1.5f) < 0.03f
+                        && editor->getLocalBounds().contains (view->getBounds()),
+                       "panel keeps the picture's shape when the window is resized");
+
+        // Every control explains itself on hover.
+        int controls = 0, withTooltip = 0;
+        bool hasTooltipWindow = false;
+
+        for (auto* child : editor->getChildren())
+        {
+            hasTooltipWindow = hasTooltipWindow || dynamic_cast<juce::TooltipWindow*> (child) != nullptr;
+
+            if (dynamic_cast<juce::Slider*> (child) != nullptr || dynamic_cast<juce::ComboBox*> (child) != nullptr
+                 || dynamic_cast<juce::Button*> (child) != nullptr || dynamic_cast<PictureView*> (child) != nullptr)
+            {
+                ++controls;
+
+                auto* client = dynamic_cast<juce::TooltipClient*> (child);
+
+                if (client != nullptr && client->getTooltip().length() > 20)
+                    ++withTooltip;
+                else
+                    std::cout << "    no tooltip: " << child->getName() << " \"" << (client != nullptr ? client->getTooltip() : juce::String()) << "\"" << std::endl;
+            }
+        }
+
+        std::cout << "    " << withTooltip << " of " << controls << " controls have a tooltip" << std::endl;
+        check (hasTooltipWindow, "editor shows tooltips");
+        check (controls >= 27 && withTooltip == controls, "every control has a tooltip");
+
+        setParam (plugin, "subOn", 0.0f);
+    }
+   #endif
+
     //==========================================================================
     std::cout << "Stress" << std::endl;
     {
@@ -450,12 +581,16 @@ int main (int argc, char* argv[])
                 if (auto writer = wav.createWriterFor (stream, options))
                     check (writer->writeFromAudioSampleBuffer (audio, 0, audio.getNumSamples()), "wrote " + wavFile.getFullPathName());
 
-               #if PTF_SPLIT
+               #if PTF_VARIANT >= 1
                 // Show a selected region in the screenshot.
                 setParam (fresh, "regionLeft", 0.45f);
                 setParam (fresh, "regionRight", 0.95f);
                 setParam (fresh, "regionBottom", 0.3f);
                 setParam (fresh, "regionTop", 0.9f);
+               #endif
+
+               #if PTF_VARIANT >= 2
+                setParam (fresh, "subOn", 1.0f);
                #endif
 
                 fresh.setPreviewHeld (true);

@@ -50,16 +50,19 @@ jobs:
           run() { if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "$@"; else "$@"; fi; }
           run build/PhotoToFrequencyRenderTest_artefacts/Release/PhotoToFrequencyRenderTest
           run build/PhotoToFrequencySplitRenderTest_artefacts/Release/PhotoToFrequencySplitRenderTest
+          run build/PhotoFreqRenderTest_artefacts/Release/PhotoFreqRenderTest
           run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
             "build/PhotoToFrequency_artefacts/Release/VST3/Photo To Frequency.vst3"
           run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
             "build/PhotoToFrequencySplit_artefacts/Release/VST3/Photo To Frequency Split.vst3"
+          run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
+            "build/PhotoFreq_artefacts/Release/VST3/Photo Freq.vst3"
 
       - name: Package
         run: |
-          # Both plugins go into one download per system.
+          # All the plugins go into one download per system.
           mkdir dist stage
-          for plugin in PhotoToFrequency PhotoToFrequencySplit; do
+          for plugin in PhotoToFrequency PhotoToFrequencySplit PhotoFreq; do
             out="build/${plugin}_artefacts/Release"
             cp -R "$out"/VST3/*.vst3 stage/
             if [ "$RUNNER_OS" = "macOS" ]; then

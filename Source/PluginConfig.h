@@ -1,16 +1,31 @@
 #pragma once
 
-/** The same sources build two plugins:
+/** The same sources build three plugins, each one adding to the one before:
 
-    - Photo To Frequency        (PTF_SPLIT=0) plays the whole picture.
-    - Photo To Frequency Split  (PTF_SPLIT=1) adds a selectable part of the
-      picture, a full oscillator envelope, and a filter with its own envelope.
+    0  Photo To Frequency        plays the whole picture.
+    1  Photo To Frequency Split  adds a selectable part of the picture, a full
+                                 oscillator envelope, and a filter with its
+                                 own envelope.
+    2  Photo Freq                adds a sub-bass oscillator, tooltips, and a
+                                 picture panel shaped like the picture.
 */
-#ifndef PTF_SPLIT
- #define PTF_SPLIT 0
+#ifndef PTF_VARIANT
+ #define PTF_VARIANT 0
 #endif
 
 namespace PluginConfig
 {
-    constexpr bool isSplit = (PTF_SPLIT != 0);
+    /** Region, envelopes and filter. */
+    constexpr bool isSplit = (PTF_VARIANT >= 1);
+
+    /** Sub oscillator, tooltips, picture panel that follows the picture's shape. */
+    constexpr bool isFreq = (PTF_VARIANT >= 2);
+
+    constexpr const char* displayName = PTF_VARIANT >= 2 ? "Photo Freq"
+                                      : PTF_VARIANT == 1 ? "Photo To Frequency Split"
+                                                         : "Photo To Frequency";
+
+    constexpr const char* stateType = PTF_VARIANT >= 2 ? "PhotoFreq"
+                                    : PTF_VARIANT == 1 ? "PhotoToFrequencySplit"
+                                                       : "PhotoToFrequency";
 }

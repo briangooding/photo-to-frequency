@@ -90,6 +90,9 @@ private:
                           * regionLeft = nullptr, *regionRight = nullptr, *regionBottom = nullptr, *regionTop = nullptr,
                           * filterType = nullptr, *cutoff = nullptr, *resonance = nullptr, *filterEnvAmount = nullptr,
                           * filterAttack = nullptr, *filterDecay = nullptr, *filterSustain = nullptr, *filterRelease = nullptr;
+
+        // Photo Freq only.
+        std::atomic<float>* subOn = nullptr, *subOctave = nullptr, *subLevel = nullptr;
     } params;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhotoToFrequencyProcessor)

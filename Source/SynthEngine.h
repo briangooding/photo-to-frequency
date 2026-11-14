@@ -44,6 +44,12 @@ struct EngineParams
     float filterDecay     = 0.3f;
     float filterSustain   = 0.5f;
     float filterRelease   = 0.5f;
+
+    // Sub oscillator: a plain sine below the played note. It follows the
+    // oscillator envelope but not the picture or the filter.
+    bool  subOn      = false;
+    int   subOctaves = 1;       // octaves below the played note
+    float subLevel   = 0.5f;    // 0..1
 };
 
 /**
@@ -160,6 +166,8 @@ private:
         std::array<float, SpectrumTable::maxRows> frequency {};            // Hz
         std::array<bool, SpectrumTable::maxRows> audible {};               // false above Nyquist
         std::array<float, SpectrumTable::maxRows> ampL {}, ampR {};        // current levels
+
+        float subRe = 1.0f, subIm = 0.0f, subAmp = 0.0f;                   // sub oscillator
     };
 
     Voice* findVoiceToStart();

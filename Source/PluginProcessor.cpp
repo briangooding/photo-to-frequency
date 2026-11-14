@@ -82,12 +82,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhotoToFrequencyProcessor::c
                                                   skewed (0.01f, 10.0f, 0.01f, 1.0f), 0.5f, Attributes().withLabel ("s")));
     }
 
+    if (PluginConfig::isFreq)
+    {
+        layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "subOn", 1 }, "Sub On", false));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "subOctave", 1 }, "Sub Octave",
+                                                                  juce::StringArray { "-1 oct", "-2 oct" }, 0));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "subLevel", 1 }, "Sub Level",
+                                                  Range (0.0f, 1.0f, 0.01f), 0.5f));
+    }
+
     return layout;
 }
 
 PhotoToFrequencyProcessor::PhotoToFrequencyProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, PluginConfig::isSplit ? "PhotoToFrequencySplit" : "PhotoToFrequency", createParameterLayout())
+      apvts (*this, nullptr, PluginConfig::stateType, createParameterLayout())
 {
     params.scan      = apvts.getRawParameterValue ("scan");
     params.loopMode  = apvts.getRawParameterValue ("loop");
@@ -119,6 +128,13 @@ PhotoToFrequencyProcessor::PhotoToFrequencyProcessor()
         params.filterDecay     = apvts.getRawParameterValue ("filterDecay");
         params.filterSustain   = apvts.getRawParameterValue ("filterSustain");
         params.filterRelease   = apvts.getRawParameterValue ("filterRelease");
+    }
+
+    if (PluginConfig::isFreq)
+    {
+        params.subOn     = apvts.getRawParameterValue ("subOn");
+        params.subOctave = apvts.getRawParameterValue ("subOctave");
+        params.subLevel  = apvts.getRawParameterValue ("subLevel");
     }
 
     setImage (ImageSpectrum::createDefaultImage(), {});
@@ -218,6 +234,13 @@ EngineParams PhotoToFrequencyProcessor::readParams() const
         p.filterDecay     = params.filterDecay->load();
         p.filterSustain   = params.filterSustain->load();
         p.filterRelease   = params.filterRelease->load();
+    }
+
+    if (PluginConfig::isFreq)
+    {
+        p.subOn      = params.subOn->load() > 0.5f;
+        p.subOctaves = 1 + juce::roundToInt (params.subOctave->load());
+        p.subLevel   = params.subLevel->load();
     }
 
     return p;

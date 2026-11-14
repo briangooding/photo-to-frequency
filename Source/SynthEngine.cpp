@@ -320,6 +320,11 @@ void SynthEngine::Voice::start (int id, float midiPitch, float vel, uint64_t sta
 
     ampL.fill (0.0f);
     ampR.fill (0.0f);
+
+    // Starts at a zero crossing, rising.
+    subRe = 0.0f;
+    subIm = -1.0f;
+    subAmp = 0.0f;
 }
 
 void SynthEngine::Voice::release() noexcept
@@ -533,6 +538,39 @@ void SynthEngine::Voice::render (float* left, float* right, int numSamples,
         oscIm[i] = im * correction;
         ampL[i] = targetL;
         ampR[i] = targetR;
+    }
+
+    //==========================================================================
+    // Sub oscillator, centred. Its level is ramped so switching it is click-free.
+    {
+        constexpr float fullLevel = 0.5f;   // matches the loudest moment of the picture
+        const float target = p.subOn ? fullLevel * juce::jlimit (0.0f, 1.0f, p.subLevel) : 0.0f;
+
+        if (subAmp > silence || target > silence)
+        {
+            const float subFrequency = baseFrequency * std::pow (0.5f, (float) juce::jlimit (1, 3, p.subOctaves));
+            const float w = juce::MathConstants<float>::twoPi * subFrequency / (float) sr;
+            const float c = std::cos (w), s = std::sin (w);
+            const float step = (target - subAmp) * rampScale;
+
+            for (int n = 0; n < numSamples; ++n)
+            {
+                const float value = subRe * subAmp;
+                mixL[n] += value;
+                mixR[n] += value;
+                subAmp += step;
+
+                const float nextRe = subRe * c - subIm * s;
+                subIm = subRe * s + subIm * c;
+                subRe = nextRe;
+            }
+
+            const float correction = 1.5f - 0.5f * (subRe * subRe + subIm * subIm);
+            subRe *= correction;
+            subIm *= correction;
+        }
+
+        subAmp = target;
     }
 
     //==========================================================================

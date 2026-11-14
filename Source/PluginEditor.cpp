@@ -30,8 +30,53 @@ namespace
 }
 
 //==============================================================================
+juce::String PhotoToFrequencyEditor::tooltipFor (const juce::String& id)
+{
+    static const std::pair<const char*, const char*> tips[] =
+    {
+        { "scan",            "Scan Time: how long the scan head takes to cross the selected part of the picture. Short times turn the picture into a rhythm or a texture; long times into a slow evolving tone." },
+        { "loop",            "Scan Mode: Loop starts again from the left, Ping-Pong goes back and forth, One-Shot crosses once and then releases the note." },
+        { "tuning",          "Tuning: how rows of the picture become pitches. Harmonic = one pitched tone whose timbre follows the picture. Free = an even spread, like a spectrogram. Chromatic, Major, Minor and Pentatonic snap every row to a note of that scale." },
+        { "range",           "Range: how many octaves the picture spans above the played note, from its bottom edge to its top. Not used by the Harmonic tuning." },
+        { "partials",        "Partials: how many rows of the picture are played, each as one sine wave. More gives finer detail and a denser sound, and uses more CPU." },
+        { "contrast",        "Contrast: higher values keep only the brightest parts of the picture, turning a wash of sound into distinct shapes." },
+        { "threshold",       "Threshold: anything darker than this is silent. Raise it to cut out haze and backgrounds." },
+        { "invert",          "Invert: dark areas play and bright areas are silent." },
+        { "tilt",            "Tilt: how much quieter the higher partials are. 0 is bright and buzzy; higher values are softer and warmer." },
+        { "width",           "Colour Width: how far colour moves the sound between the speakers. Red leans left, blue leans right. 0 is mono." },
+        { "gain",            "Gain: overall output volume. Turn it down if the sound distorts when you play chords." },
+        { "attack",          "Oscillator Attack: how long a note takes to fade in." },
+        { "decay",           "Oscillator Decay: how long a note takes to fall from its peak to the Sustain level." },
+        { "sustain",         "Oscillator Sustain: the volume a note settles at while the key is held. At 0 the note dies away like a pluck." },
+        { "release",         "Oscillator Release: how long a note takes to fade out after the key is let go." },
+        { "filterType",      "Filter Type: Low-Pass removes partials above the cutoff, High-Pass removes those below it, Band-Pass keeps only those around it." },
+        { "cutoff",          "Cutoff: the frequency where the filter starts to act. With a Low-Pass, turn it down for a darker sound." },
+        { "resonance",       "Resonance: boosts partials right at the cutoff, giving the filter a ringing, vocal edge." },
+        { "filterEnvAmount", "Env Amount: how far the filter envelope moves the cutoff, in octaves. Positive opens the filter at the start of a note; negative closes it." },
+        { "filterAttack",    "Filter Attack: how long the filter envelope takes to reach its peak." },
+        { "filterDecay",     "Filter Decay: how long the filter envelope takes to fall from its peak to its Sustain level." },
+        { "filterSustain",   "Filter Sustain: where the filter envelope settles while the key is held. 0 returns to the Cutoff setting; 1 stays at the full Env Amount." },
+        { "filterRelease",   "Filter Release: how long the filter envelope takes to return to the Cutoff setting after the key is let go." },
+        { "subOn",           "Sub Oscillator: adds a pure sine wave below the played note for sub-bass weight. It follows the oscillator envelope but ignores the picture and the filter." },
+        { "subOctave",       "Sub Octave: whether the sub oscillator plays one or two octaves below the played note." },
+        { "subLevel",        "Sub Level: volume of the sub oscillator." },
+    };
+
+    for (auto& tip : tips)
+        if (id == tip.first)
+            return tip.second;
+
+    return {};
+}
+
+//==============================================================================
 PictureView::PictureView (PhotoToFrequencyProcessor& p) : processor (p)
 {
+    if (PluginConfig::isFreq)
+        setTooltip ("The picture. Left to right is time, bottom to top is pitch, brightness is loudness, and colour is left/right position. "
+                    "Drag a box to choose the part that plays: drag inside it to move it, an edge or corner to resize it, "
+                    "outside it to draw a new one, and double-click to select everything.");
+
     if (PluginConfig::isSplit)
     {
         const char* ids[] = { "regionLeft", "regionRight", "regionBottom", "regionTop" };
@@ -271,7 +316,8 @@ void PictureView::paint (juce::Graphics& g)
         g.setColour (shadow ? juce::Colours::black.withAlpha (0.8f) : textColour);
         g.drawText ("high", textArea, juce::Justification::topLeft);
         g.drawText ("low", textArea, juce::Justification::bottomLeft);
-        g.drawText (PluginConfig::isSplit ? "drag to choose the part that plays - double-click for all" : "time >",
+        // Photo Freq explains the box in its tooltip instead, and its panel can be narrow.
+        g.drawText (PluginConfig::isSplit && ! PluginConfig::isFreq ? "drag to choose the part that plays - double-click for all" : "time >",
                     textArea, juce::Justification::bottomRight);
     }
 
@@ -331,7 +377,15 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
     // Latching, so the picture keeps playing while you turn knobs.
     addAndMakeVisible (playButton);
     playButton.setClickingTogglesState (true);
-    playButton.setTooltip ("Holds a C3 so you can hear the picture without a keyboard");
+
+    if (PluginConfig::isFreq)
+    {
+        // Added as a child of the editor so tooltips also work inside a host's plugin window.
+        tooltipWindow = std::make_unique<juce::TooltipWindow> (this, 600);
+        loadButton.setTooltip ("Load Image: choose a JPG, PNG or GIF to play. You can also drag a file onto the picture. The picture is saved with your project.");
+        playButton.setTooltip ("Play: holds a C3 so you can hear the picture without a keyboard. Click again to stop.");
+        invertButton.setTooltip (tooltipFor ("invert"));
+    }
     playButton.setToggleState (processor.isPreviewHeld(), juce::dontSendNotification);
     playButton.onClick = [this]
     {
@@ -366,6 +420,14 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
         groups.push_back ({ "FILTER ENVELOPE",
                             { addKnob ("filterAttack", "Attack"), addKnob ("filterDecay", "Decay"),
                               addKnob ("filterSustain", "Sustain"), addKnob ("filterRelease", "Release") }, {} });
+
+        if (PluginConfig::isFreq)
+        {
+            addAndMakeVisible (subButton);
+            subButton.setTooltip (tooltipFor ("subOn"));
+            subAttachment = std::make_unique<APVTS::ButtonAttachment> (processor.apvts, "subOn", subButton);
+            groups.push_back ({ "SUB OSC", { addKnob ("subOctave", "Octave"), addKnob ("subLevel", "Level") }, {}, &subButton });
+        }
     }
     else
     {
@@ -379,7 +441,13 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
 
     setResizable (true, true);
 
-    if (PluginConfig::isSplit)
+    if (PluginConfig::isFreq)
+    {
+        setResizeLimits (1060, getFixedHeight() + 200, 2200, getFixedHeight() + 1100);
+        setSize (1140, getFixedHeight() + 400);
+        fitWindowToImage();
+    }
+    else if (PluginConfig::isSplit)
     {
         setResizeLimits (940, 660, 2000, 1500);
         setSize (1020, 780);
@@ -417,6 +485,12 @@ PhotoToFrequencyEditor::Knob* PhotoToFrequencyEditor::addKnob (const juce::Strin
     knob->label.setFont (uiFont (13.0f));
     knob->label.setColour (juce::Label::textColourId, textColour);
 
+    if (PluginConfig::isFreq)
+    {
+        knob->slider.setTooltip (tooltipFor (paramId));
+        knob->label.setTooltip (tooltipFor (paramId));
+    }
+
     return knob;
 }
 
@@ -435,6 +509,12 @@ PhotoToFrequencyEditor::Choice* PhotoToFrequencyEditor::addChoice (const juce::S
     choice->label.setFont (uiFont (13.0f));
     choice->label.setColour (juce::Label::textColourId, dimText);
 
+    if (PluginConfig::isFreq)
+    {
+        choice->box.setTooltip (tooltipFor (paramId));
+        choice->label.setTooltip (tooltipFor (paramId));
+    }
+
     return choice;
 }
 
@@ -449,16 +529,41 @@ int PhotoToFrequencyEditor::getControlsHeight() const
     return height;
 }
 
+int PhotoToFrequencyEditor::getFixedHeight() const
+{
+    return 2 * margin + (headerHeight - 10) + 10 + margin + getControlsHeight();
+}
+
+void PhotoToFrequencyEditor::fitWindowToImage()
+{
+    if (! PluginConfig::isFreq || getWidth() <= 0)
+        return;
+
+    const auto image = processor.getPreviewImage();
+    imageAspect = image.isValid() ? (float) image.getWidth() / (float) juce::jmax (1, image.getHeight()) : 2.0f;
+
+    // The window opens at a height that fits a laptop screen; where the picture
+    // would need more, the panel is narrower instead. Enlarging the window
+    // enlarges the picture.
+    const int pictureWidth = getWidth() - 2 * margin;
+    const int pictureHeight = juce::jlimit (220, 520, juce::roundToInt ((float) pictureWidth / imageAspect));
+
+    setSize (getWidth(), getFixedHeight() + pictureHeight);
+    resized();
+    repaint();
+}
+
 void PhotoToFrequencyEditor::paint (juce::Graphics& g)
 {
     g.fillAll (background);
 
     // Header
     auto header = getLocalBounds().reduced (margin).removeFromTop (headerHeight - 10);
-    const juce::String title = PluginConfig::isSplit ? "Photo To Frequency Split" : "Photo To Frequency";
     g.setColour (textColour);
     g.setFont (uiFont (20.0f, true));
-    g.drawText (title, header.removeFromLeft (PluginConfig::isSplit ? 260 : 210), juce::Justification::centredLeft);
+    g.drawText (PluginConfig::displayName,
+                header.removeFromLeft (PluginConfig::isFreq ? 130 : PluginConfig::isSplit ? 260 : 210),
+                juce::Justification::centredLeft);
 
     g.setFont (uiFont (13.0f));
     g.setColour (statusMessage.isNotEmpty() ? accent : dimText);
@@ -478,6 +583,9 @@ void PhotoToFrequencyEditor::paint (juce::Graphics& g)
     for (auto& group : groups)
     {
         auto titleArea = group.bounds.withHeight (groupTitleHeight).reduced (6, 0);
+
+        if (group.toggle != nullptr)
+            titleArea.removeFromRight (group.toggle->getWidth());
         g.setColour (outline);
         g.fillRect (titleArea.withTop (titleArea.getBottom() - 4).withHeight (1));
         g.setColour (accent);
@@ -497,6 +605,18 @@ void PhotoToFrequencyEditor::resized()
     auto controls = bounds.removeFromBottom (getControlsHeight()).reduced (12, 10);
     bounds.removeFromTop (10);
     bounds.removeFromBottom (margin);
+
+    if (PluginConfig::isFreq && bounds.getWidth() > 0 && bounds.getHeight() > 0)
+    {
+        // The panel takes the picture's own shape, as large as fits, centred.
+        const float areaAspect = (float) bounds.getWidth() / (float) bounds.getHeight();
+        const int width  = imageAspect >= areaAspect ? bounds.getWidth()
+                                                     : juce::roundToInt ((float) bounds.getHeight() * imageAspect);
+        const int height = imageAspect >= areaAspect ? juce::roundToInt ((float) bounds.getWidth() / imageAspect)
+                                                     : bounds.getHeight();
+        bounds = bounds.withSizeKeepingCentre (juce::jmax (40, width), juce::jmax (40, height));
+    }
+
     picture.setBounds (bounds);
 
     // Choices
@@ -545,6 +665,9 @@ void PhotoToFrequencyEditor::resized()
             group.bounds = groupArea.removeFromLeft (knobWidth * (int) group.knobs.size());
             groupArea.removeFromLeft (gap);
             layOutKnobs (group.knobs, group.bounds.withTrimmedTop (groupTitleHeight), knobWidth);
+
+            if (group.toggle != nullptr)
+                group.toggle->setBounds (group.bounds.withHeight (groupTitleHeight - 4).removeFromRight (58));
         }
     }
 }
@@ -559,6 +682,7 @@ void PhotoToFrequencyEditor::refreshImage()
 {
     picture.setImage (processor.getPreviewImage());
     imageName = processor.getImageName();
+    fitWindowToImage();
     repaint();
 }
 

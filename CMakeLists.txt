@@ -29,10 +29,10 @@ if(APPLE)
     list(APPEND PTF_FORMATS AU)
 endif()
 
-# Both plugins are built from the same sources; PTF_SPLIT selects the variant
+# All plugins are built from the same sources; PTF_VARIANT selects which one
 # (see Source/PluginConfig.h). Each has its own plugin code and bundle id, so a
-# host lists them as two separate instruments.
-function(ptf_add_plugin target product_name plugin_code bundle_id is_split)
+# host lists them as separate instruments.
+function(ptf_add_plugin target product_name plugin_code bundle_id variant)
     juce_add_plugin(${target}
         PRODUCT_NAME              "${product_name}"
         COMPANY_NAME              "Photo To Frequency"
@@ -56,7 +56,7 @@ function(ptf_add_plugin target product_name plugin_code bundle_id is_split)
         Source/PluginEditor.cpp)
 
     target_compile_definitions(${target} PUBLIC
-        PTF_SPLIT=${is_split}
+        PTF_VARIANT=${variant}
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
@@ -81,6 +81,7 @@ endfunction()
 
 ptf_add_plugin(PhotoToFrequency      "Photo To Frequency"       Ptf1 "com.phototofrequency.plugin" 0)
 ptf_add_plugin(PhotoToFrequencySplit "Photo To Frequency Split" Ptf2 "com.phototofrequency.split"  1)
+ptf_add_plugin(PhotoFreq             "Photo Freq"               Ptf3 "com.phototofrequency.freq"   2)
 
 if(PTF_BUILD_TESTS)
     # Loads a built .vst3 through JUCE's VST3 host, the way a DAW would.
@@ -93,5 +94,5 @@ if(PTF_BUILD_TESTS)
     target_link_libraries(PhotoToFrequencyHostCheck PRIVATE
         juce::juce_audio_utils
         juce::juce_recommended_config_flags)
-    add_dependencies(PhotoToFrequencyHostCheck PhotoToFrequency_VST3 PhotoToFrequencySplit_VST3)
+    add_dependencies(PhotoToFrequencyHostCheck PhotoToFrequency_VST3 PhotoToFrequencySplit_VST3 PhotoFreq_VST3)
 endif()

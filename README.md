@@ -63,12 +63,28 @@ does everything above and adds:
 With the filter fully open (Low-Pass at 20000 Hz, Env Amount 0, the defaults)
 and the whole picture selected, it sounds the same as the original.
 
+## Photo Freq
+
+A third plugin, built on Split and installed alongside the other two. It has
+everything Split has and adds:
+
+- **Sub oscillator.** A pure sine one or two octaves below each played note,
+  with an **On** switch, **Octave** and **Level**. It follows the oscillator
+  envelope but ignores the picture and the filter, so the bass stays solid
+  whatever the picture is doing. It is off by default.
+- **Tooltips.** Hover over any control, or the picture, for an explanation of
+  what it does.
+- **Picture panel in the picture's shape.** The panel takes the proportions of
+  the loaded picture instead of stretching it, and the window adjusts its
+  height to suit when a picture is loaded. Resizing the window keeps the shape.
+
 ## Getting the plugin
 
 Every push builds Windows, macOS (universal) and Linux versions: open the
 latest run under the repository's **Actions** tab and download the artifact for
-your system. Each download contains both plugins. Copy
-`Photo To Frequency.vst3` and `Photo To Frequency Split.vst3` to:
+your system. Each download contains all three plugins. Copy
+`Photo To Frequency.vst3`, `Photo To Frequency Split.vst3` and `Photo Freq.vst3`
+(or just the ones you want) to:
 
 | System | VST3 folder |
 | --- | --- |
@@ -79,7 +95,7 @@ your system. Each download contains both plugins. Copy
 The builds are not signed with a developer certificate. On macOS, clear the
 download quarantine once before rescanning in your DAW:
 
-    xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"Photo To Frequency"*.vst3
+    xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Photo*.vst3
 
 Standalone apps are included for trying them without a DAW.
 
@@ -91,8 +107,9 @@ JUCE 8 is downloaded during configuration.
     cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
     cmake --build build --config Release
 
-The plugins end up in `build/PhotoToFrequency_artefacts/Release/VST3` and
-`build/PhotoToFrequencySplit_artefacts/Release/VST3`.
+The plugins end up in `build/PhotoToFrequency_artefacts/Release/VST3`,
+`build/PhotoToFrequencySplit_artefacts/Release/VST3` and
+`build/PhotoFreq_artefacts/Release/VST3`.
 
 Linux also needs the development packages for ALSA, X11 (Xext, Xrandr, Xinerama,
 Xcursor, Xcomposite), FreeType and Fontconfig.
@@ -103,16 +120,18 @@ Headless checks are built alongside the plugins:
 
     build/PhotoToFrequencyRenderTest_artefacts/Release/PhotoToFrequencyRenderTest [photo.jpg] [output-dir]
     build/PhotoToFrequencySplitRenderTest_artefacts/Release/PhotoToFrequencySplitRenderTest [photo.jpg] [output-dir]
+    build/PhotoFreqRenderTest_artefacts/Release/PhotoFreqRenderTest [photo.jpg] [output-dir]
     build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck "build/PhotoToFrequency_artefacts/Release/VST3/Photo To Frequency.vst3"
 
 The render tests exercise image analysis, the synth, EXIF handling and state
-saving (and, for Split, the region, envelopes and filter); given a photo and an
+saving (for Split also the region, envelopes and filter; for Photo Freq also
+the sub oscillator, panel shape and tooltips); given a photo and an
 output directory they also write `render.wav` and a screenshot of the editor.
 The host check loads a built VST3 through a VST3 host and plays a note.
 
 ## Layout
 
-- `Source/PluginConfig.h` - which of the two plugins is being built
+- `Source/PluginConfig.h` - which of the three plugins is being built
 - `Source/ImageSpectrum.*` - loads the picture and reduces it to brightness/pan grids
 - `Source/SynthEngine.*` - the additive synth
 - `Source/PluginProcessor.*` - parameters, MIDI, state

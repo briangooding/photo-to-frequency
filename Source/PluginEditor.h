@@ -4,7 +4,8 @@
 
 /** Shows the picture and the scan head. In the Split plugin it also shows the
     part of the picture that is played and lets you drag it. */
-class PictureView final : public juce::Component
+class PictureView final : public juce::Component,
+                          public juce::SettableTooltipClient
 {
 public:
     explicit PictureView (PhotoToFrequencyProcessor&);
@@ -96,6 +97,7 @@ private:
         juce::String title;
         std::vector<Knob*> knobs;
         juce::Rectangle<int> bounds;
+        juce::Button* toggle = nullptr;    // optional on/off switch shown in the title line
     };
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -108,6 +110,14 @@ private:
     void refreshImage();
     int getControlsHeight() const;
 
+    /** Height of everything except the picture panel. */
+    int getFixedHeight() const;
+
+    /** Photo Freq: makes the window as tall as the picture needs at the current width. */
+    void fitWindowToImage();
+
+    static juce::String tooltipFor (const juce::String& paramId);
+
     PhotoToFrequencyProcessor& processor;
     juce::LookAndFeel_V4 lookAndFeel;
 
@@ -116,6 +126,10 @@ private:
     juce::TextButton playButton { "Play" };
     juce::ToggleButton invertButton { "Invert" };
     std::unique_ptr<APVTS::ButtonAttachment> invertAttachment;
+    juce::ToggleButton subButton { "On" };
+    std::unique_ptr<APVTS::ButtonAttachment> subAttachment;
+    std::unique_ptr<juce::TooltipWindow> tooltipWindow;
+    float imageAspect = 2.0f;   // width / height of the loaded picture
 
     juce::OwnedArray<Knob> knobs;
     juce::OwnedArray<Choice> choices;
