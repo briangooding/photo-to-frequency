@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_utils/juce_audio_utils.h>
+#include "PluginConfig.h"
 #include "ImageSpectrum.h"
 #include "SynthEngine.h"
 
@@ -83,6 +84,12 @@ private:
         std::atomic<float>* scan = nullptr, *loopMode = nullptr, *tuning = nullptr, *range = nullptr,
                           * partials = nullptr, *contrast = nullptr, *threshold = nullptr, *invert = nullptr,
                           * tilt = nullptr, *width = nullptr, *attack = nullptr, *release = nullptr, *gain = nullptr;
+
+        // Split only; null in the original plugin.
+        std::atomic<float>* decay = nullptr, *sustain = nullptr,
+                          * regionLeft = nullptr, *regionRight = nullptr, *regionBottom = nullptr, *regionTop = nullptr,
+                          * filterType = nullptr, *cutoff = nullptr, *resonance = nullptr, *filterEnvAmount = nullptr,
+                          * filterAttack = nullptr, *filterDecay = nullptr, *filterSustain = nullptr, *filterRelease = nullptr;
     } params;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhotoToFrequencyProcessor)

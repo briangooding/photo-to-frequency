@@ -29,50 +29,61 @@ if(APPLE)
     list(APPEND PTF_FORMATS AU)
 endif()
 
-juce_add_plugin(PhotoToFrequency
-    PRODUCT_NAME              "Photo To Frequency"
-    COMPANY_NAME              "Photo To Frequency"
-    BUNDLE_ID                 "com.phototofrequency.plugin"
-    PLUGIN_MANUFACTURER_CODE  Ptfq
-    PLUGIN_CODE               Ptf1
-    FORMATS                   ${PTF_FORMATS}
-    IS_SYNTH                  TRUE
-    NEEDS_MIDI_INPUT          TRUE
-    NEEDS_MIDI_OUTPUT         FALSE
-    IS_MIDI_EFFECT            FALSE
-    EDITOR_WANTS_KEYBOARD_FOCUS FALSE
-    VST3_CATEGORIES           Instrument Synth
-    AU_MAIN_TYPE              kAudioUnitType_MusicDevice
-    COPY_PLUGIN_AFTER_BUILD   FALSE)
+# Both plugins are built from the same sources; PTF_SPLIT selects the variant
+# (see Source/PluginConfig.h). Each has its own plugin code and bundle id, so a
+# host lists them as two separate instruments.
+function(ptf_add_plugin target product_name plugin_code bundle_id is_split)
+    juce_add_plugin(${target}
+        PRODUCT_NAME              "${product_name}"
+        COMPANY_NAME              "Photo To Frequency"
+        BUNDLE_ID                 "${bundle_id}"
+        PLUGIN_MANUFACTURER_CODE  Ptfq
+        PLUGIN_CODE               ${plugin_code}
+        FORMATS                   ${PTF_FORMATS}
+        IS_SYNTH                  TRUE
+        NEEDS_MIDI_INPUT          TRUE
+        NEEDS_MIDI_OUTPUT         FALSE
+        IS_MIDI_EFFECT            FALSE
+        EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+        VST3_CATEGORIES           Instrument Synth
+        AU_MAIN_TYPE              kAudioUnitType_MusicDevice
+        COPY_PLUGIN_AFTER_BUILD   FALSE)
 
-target_sources(PhotoToFrequency PRIVATE
-    Source/ImageSpectrum.cpp
-    Source/SynthEngine.cpp
-    Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
+    target_sources(${target} PRIVATE
+        Source/ImageSpectrum.cpp
+        Source/SynthEngine.cpp
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp)
 
-target_compile_definitions(PhotoToFrequency PUBLIC
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
-    JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0)
+    target_compile_definitions(${target} PUBLIC
+        PTF_SPLIT=${is_split}
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_DISPLAY_SPLASH_SCREEN=0)
 
-target_link_libraries(PhotoToFrequency
-    PRIVATE
-        juce::juce_audio_utils
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_warning_flags)
+    target_link_libraries(${target}
+        PRIVATE
+            juce::juce_audio_utils
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_warning_flags)
+
+    if(PTF_BUILD_TESTS)
+        juce_add_console_app(${target}RenderTest)
+        target_sources(${target}RenderTest PRIVATE Tests/RenderTest.cpp)
+        target_include_directories(${target}RenderTest PRIVATE Source)
+        target_link_libraries(${target}RenderTest PRIVATE
+            ${target}
+            juce::juce_audio_utils)
+    endif()
+endfunction()
+
+ptf_add_plugin(PhotoToFrequency      "Photo To Frequency"       Ptf1 "com.phototofrequency.plugin" 0)
+ptf_add_plugin(PhotoToFrequencySplit "Photo To Frequency Split" Ptf2 "com.phototofrequency.split"  1)
 
 if(PTF_BUILD_TESTS)
-    juce_add_console_app(PhotoToFrequencyRenderTest)
-    target_sources(PhotoToFrequencyRenderTest PRIVATE Tests/RenderTest.cpp)
-    target_include_directories(PhotoToFrequencyRenderTest PRIVATE Source)
-    target_link_libraries(PhotoToFrequencyRenderTest PRIVATE
-        PhotoToFrequency
-        juce::juce_audio_utils)
-
-    # Loads the built .vst3 through JUCE's VST3 host, the way a DAW would.
+    # Loads a built .vst3 through JUCE's VST3 host, the way a DAW would.
     juce_add_console_app(PhotoToFrequencyHostCheck)
     target_sources(PhotoToFrequencyHostCheck PRIVATE Tests/HostCheck.cpp)
     target_compile_definitions(PhotoToFrequencyHostCheck PRIVATE
@@ -82,5 +93,5 @@ if(PTF_BUILD_TESTS)
     target_link_libraries(PhotoToFrequencyHostCheck PRIVATE
         juce::juce_audio_utils
         juce::juce_recommended_config_flags)
-    add_dependencies(PhotoToFrequencyHostCheck PhotoToFrequency_VST3)
+    add_dependencies(PhotoToFrequencyHostCheck PhotoToFrequency_VST3 PhotoToFrequencySplit_VST3)
 endif()

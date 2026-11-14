@@ -49,12 +49,45 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhotoToFrequencyProcessor::c
     layout.add (std::make_unique<FloatParam> (juce::ParameterID { "gain", 1 }, "Gain",
                                               Range (-48.0f, 12.0f, 0.1f), -6.0f, Attributes().withLabel ("dB")));
 
+    if (PluginConfig::isSplit)
+    {
+        // Oscillator envelope: attack and release above, plus these two.
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "decay", 1 }, "Decay",
+                                                  skewed (0.005f, 10.0f, 0.001f, 0.5f), 0.3f, Attributes().withLabel ("s")));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "sustain", 1 }, "Sustain",
+                                                  Range (0.0f, 1.0f, 0.01f), 1.0f));
+
+        // Part of the picture that is played.
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "regionLeft", 1 }, "Region Left", Range (0.0f, 1.0f), 0.0f));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "regionRight", 1 }, "Region Right", Range (0.0f, 1.0f), 1.0f));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "regionBottom", 1 }, "Region Bottom", Range (0.0f, 1.0f), 0.0f));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "regionTop", 1 }, "Region Top", Range (0.0f, 1.0f), 1.0f));
+
+        // Filter and its envelope.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "filterType", 1 }, "Filter Type",
+                                                                  juce::StringArray { "Low-Pass", "High-Pass", "Band-Pass" }, 0));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "cutoff", 1 }, "Cutoff",
+                                                  skewed (20.0f, 20000.0f, 1.0f, 1000.0f), 20000.0f, Attributes().withLabel ("Hz")));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "resonance", 1 }, "Resonance",
+                                                  Range (0.0f, 1.0f, 0.01f), 0.0f));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterEnvAmount", 1 }, "Filter Env Amount",
+                                                  Range (-8.0f, 8.0f, 0.01f), 0.0f, Attributes().withLabel ("oct")));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterAttack", 1 }, "Filter Attack",
+                                                  skewed (0.001f, 5.0f, 0.001f, 0.2f), 0.01f, Attributes().withLabel ("s")));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterDecay", 1 }, "Filter Decay",
+                                                  skewed (0.005f, 10.0f, 0.001f, 0.5f), 0.4f, Attributes().withLabel ("s")));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterSustain", 1 }, "Filter Sustain",
+                                                  Range (0.0f, 1.0f, 0.01f), 0.3f));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterRelease", 1 }, "Filter Release",
+                                                  skewed (0.01f, 10.0f, 0.01f, 1.0f), 0.5f, Attributes().withLabel ("s")));
+    }
+
     return layout;
 }
 
 PhotoToFrequencyProcessor::PhotoToFrequencyProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "PhotoToFrequency", createParameterLayout())
+      apvts (*this, nullptr, PluginConfig::isSplit ? "PhotoToFrequencySplit" : "PhotoToFrequency", createParameterLayout())
 {
     params.scan      = apvts.getRawParameterValue ("scan");
     params.loopMode  = apvts.getRawParameterValue ("loop");
@@ -69,6 +102,24 @@ PhotoToFrequencyProcessor::PhotoToFrequencyProcessor()
     params.attack    = apvts.getRawParameterValue ("attack");
     params.release   = apvts.getRawParameterValue ("release");
     params.gain      = apvts.getRawParameterValue ("gain");
+
+    if (PluginConfig::isSplit)
+    {
+        params.decay           = apvts.getRawParameterValue ("decay");
+        params.sustain         = apvts.getRawParameterValue ("sustain");
+        params.regionLeft      = apvts.getRawParameterValue ("regionLeft");
+        params.regionRight     = apvts.getRawParameterValue ("regionRight");
+        params.regionBottom    = apvts.getRawParameterValue ("regionBottom");
+        params.regionTop       = apvts.getRawParameterValue ("regionTop");
+        params.filterType      = apvts.getRawParameterValue ("filterType");
+        params.cutoff          = apvts.getRawParameterValue ("cutoff");
+        params.resonance       = apvts.getRawParameterValue ("resonance");
+        params.filterEnvAmount = apvts.getRawParameterValue ("filterEnvAmount");
+        params.filterAttack    = apvts.getRawParameterValue ("filterAttack");
+        params.filterDecay     = apvts.getRawParameterValue ("filterDecay");
+        params.filterSustain   = apvts.getRawParameterValue ("filterSustain");
+        params.filterRelease   = apvts.getRawParameterValue ("filterRelease");
+    }
 
     setImage (ImageSpectrum::createDefaultImage(), {});
 }
@@ -149,6 +200,26 @@ EngineParams PhotoToFrequencyProcessor::readParams() const
     p.width        = params.width->load();
     p.attack       = params.attack->load();
     p.release      = params.release->load();
+
+    if (PluginConfig::isSplit)
+    {
+        p.decay           = params.decay->load();
+        p.sustain         = params.sustain->load();
+        p.regionLeft      = params.regionLeft->load();
+        p.regionRight     = params.regionRight->load();
+        p.regionBottom    = params.regionBottom->load();
+        p.regionTop       = params.regionTop->load();
+        p.filterOn        = true;
+        p.filterType      = juce::roundToInt (params.filterType->load());
+        p.cutoff          = params.cutoff->load();
+        p.resonance       = params.resonance->load();
+        p.filterEnvAmount = params.filterEnvAmount->load();
+        p.filterAttack    = params.filterAttack->load();
+        p.filterDecay     = params.filterDecay->load();
+        p.filterSustain   = params.filterSustain->load();
+        p.filterRelease   = params.filterRelease->load();
+    }
+
     return p;
 }
 

@@ -227,6 +227,164 @@ int main (int argc, char* argv[])
         check (other.getImageName() == "stripes.jpg", "garbage state is ignored");
     }
 
+   #if PTF_SPLIT
+    //==========================================================================
+    // The stripes picture is still loaded: red low stripe on the left half,
+    // blue high stripe on the right half.
+    std::cout << "Split: part of the picture" << std::endl;
+    {
+        constexpr int sr = 48000;
+        auto setRegion = [&] (float left, float right, float bottom, float top)
+        {
+            setParam (plugin, "regionLeft", left);
+            setParam (plugin, "regionRight", right);
+            setParam (plugin, "regionBottom", bottom);
+            setParam (plugin, "regionTop", top);
+        };
+        auto levels = [&] (const juce::AudioBuffer<float>& audio, const char* label)
+        {
+            const float l = audio.getRMSLevel (0, sr / 5, 3 * sr / 2), r = audio.getRMSLevel (1, sr / 5, 3 * sr / 2);
+            std::cout << "    " << label << "  L/R " << l << " / " << r << std::endl;
+            return std::make_pair (l, r);
+        };
+
+        setParam (plugin, "scan", 2.0f);
+        setParam (plugin, "range", 5.0f);
+
+        setRegion (0.0f, 0.5f, 0.0f, 1.0f);
+        auto [leftL, leftR] = levels (render (plugin, { 48 }, 2.0, 0.5), "left half ");
+        check (leftL > 0.01f && leftL > 8.0f * leftR, "left half of the picture: only the red stripe plays, all scan long");
+
+        setRegion (0.5f, 1.0f, 0.0f, 1.0f);
+        auto [rightL, rightR] = levels (render (plugin, { 48 }, 2.0, 0.5), "right half");
+        check (rightR > 0.01f && rightR > 8.0f * rightL, "right half of the picture: only the blue stripe plays");
+
+        setRegion (0.0f, 1.0f, 0.0f, 0.5f);
+        {
+            const auto audio = render (plugin, { 48 }, 2.0, 0.5);
+            const float first = audio.getRMSLevel (0, sr / 5, sr / 2);
+            const float second = juce::jmax (audio.getRMSLevel (0, sr + sr / 5, sr / 2), audio.getRMSLevel (1, sr + sr / 5, sr / 2));
+            std::cout << "    bottom half  first " << first << "  second " << second << std::endl;
+            check (first > 0.01f && second < 1.0e-4f, "bottom half of the picture: the top stripe is left out");
+        }
+
+        setRegion (1.0f, 0.0f, 1.0f, 0.0f);
+        check (measure (render (plugin, { 48 }, 0.5, 0.2)).finite, "reversed region edges are handled");
+
+        setRegion (0.3f, 0.3f, 0.9f, 0.9f);
+        check (measure (render (plugin, { 48 }, 0.5, 0.2)).finite, "empty region is handled");
+    }
+
+    std::cout << "Split: oscillator envelope" << std::endl;
+    {
+        constexpr int sr = 48000;
+        setParam (plugin, "regionLeft", 0.0f);
+        setParam (plugin, "regionRight", 0.5f);
+        setParam (plugin, "regionBottom", 0.0f);
+        setParam (plugin, "regionTop", 1.0f);
+        setParam (plugin, "loop", (float) EngineParams::loop);
+        setParam (plugin, "decay", 0.2f);
+        setParam (plugin, "sustain", 0.0f);
+
+        auto audio = render (plugin, { 48 }, 2.0, 0.2);
+        float early = audio.getRMSLevel (0, sr / 100, sr / 20), late = audio.getRMSLevel (0, sr, sr / 2);
+        std::cout << "    sustain 0:   early " << early << "  late " << late << std::endl;
+        check (early > 0.01f && late < 1.0e-4f, "with sustain at 0 a held note decays to silence");
+
+        setParam (plugin, "sustain", 0.5f);
+        const float half = render (plugin, { 48 }, 2.0, 0.2).getRMSLevel (0, sr, sr / 2);
+        setParam (plugin, "sustain", 1.0f);
+        const float full = render (plugin, { 48 }, 2.0, 0.2).getRMSLevel (0, sr, sr / 2);
+        std::cout << "    held level: sustain 0.5 " << half << "  sustain 1 " << full << std::endl;
+        check (half > 0.45f * full && half < 0.55f * full, "sustain sets the held level");
+    }
+
+    std::cout << "Split: filter" << std::endl;
+    {
+        constexpr int sr = 48000;
+        juce::Image white (juce::Image::RGB, 64, 64, true);
+        white.clear (white.getBounds(), juce::Colours::white);
+        plugin.setImage (white, "white");
+
+        setParam (plugin, "regionRight", 1.0f);
+        setParam (plugin, "tuning", (float) EngineParams::harmonic);
+        setParam (plugin, "tilt", 0.0f);
+
+        auto crossings = [&] (const juce::AudioBuffer<float>& audio, int start, int length)
+        {
+            int count = 0;
+            for (int n = start + 1; n < start + length; ++n)
+                if ((audio.getSample (0, n - 1) < 0.0f) != (audio.getSample (0, n) < 0.0f))
+                    ++count;
+            return count;
+        };
+
+        // C2: 64 harmonics from 65 Hz to 4.2 kHz.
+        const int open = crossings (render (plugin, { 36 }, 1.0, 0.1), sr / 4, sr / 2);
+
+        setParam (plugin, "cutoff", 200.0f);
+        const int lowPassed = crossings (render (plugin, { 36 }, 1.0, 0.1), sr / 4, sr / 2);
+
+        setParam (plugin, "filterType", (float) EngineParams::highPass);
+        setParam (plugin, "cutoff", 3000.0f);
+        const int highPassed = crossings (render (plugin, { 36 }, 1.0, 0.1), sr / 4, sr / 2);
+
+        setParam (plugin, "filterType", (float) EngineParams::bandPass);
+        setParam (plugin, "cutoff", 1000.0f);
+        setParam (plugin, "resonance", 1.0f);
+        const int bandPassed = crossings (render (plugin, { 36 }, 1.0, 0.1), sr / 4, sr / 2);
+
+        std::cout << "    zero crossings in 0.5 s: open " << open << ", low-pass 200 Hz " << lowPassed
+                  << ", high-pass 3 kHz " << highPassed << ", band-pass 1 kHz " << bandPassed << std::endl;
+        check (lowPassed * 3 < open, "low-pass removes the high partials");
+        check (highPassed > open, "high-pass removes the low partials");
+        // 1 kHz alone would give 1000; neighbouring partials leak through and the
+        // random start phases move the count around a little.
+        check (bandPassed > 800 && bandPassed < 1600, "resonant band-pass rings at its cutoff");
+
+        // Filter envelope: opens on the attack, then closes while the note is held.
+        setParam (plugin, "filterType", (float) EngineParams::lowPass);
+        setParam (plugin, "resonance", 0.0f);
+        setParam (plugin, "cutoff", 100.0f);
+        setParam (plugin, "filterEnvAmount", 6.0f);
+        setParam (plugin, "filterAttack", 0.001f);
+        setParam (plugin, "filterDecay", 0.3f);
+        setParam (plugin, "filterSustain", 0.0f);
+
+        const auto swept = render (plugin, { 36 }, 2.0, 0.1);
+        const int bright = crossings (swept, sr / 100, sr / 20), dark = crossings (swept, sr, sr / 20);
+        std::cout << "    filter envelope: zero crossings in 50 ms at the start " << bright << ", after 1 s " << dark << std::endl;
+        check (bright > 3 * dark, "filter envelope sweeps the cutoff down while the note is held");
+
+        // A slower decay here, so the filter is still nearly shut in the first 50 ms.
+        setParam (plugin, "filterEnvAmount", -6.0f);
+        setParam (plugin, "cutoff", 6400.0f);
+        setParam (plugin, "filterDecay", 2.0f);
+        const auto sweptUp = render (plugin, { 36 }, 2.0, 0.1);
+        const int closedStart = crossings (sweptUp, sr / 100, sr / 20), openLater = crossings (sweptUp, sr, sr / 20);
+        std::cout << "    negative amount: at the start " << closedStart << ", after 1 s " << openLater
+                  << "  (cutoff " << plugin.apvts.getRawParameterValue ("cutoff")->load()
+                  << ", amount " << plugin.apvts.getRawParameterValue ("filterEnvAmount")->load() << ")" << std::endl;
+        check (openLater > 3 * closedStart, "negative amount sweeps it the other way");
+
+        // State keeps the new parameters.
+        setParam (plugin, "regionTop", 0.6f);
+        juce::MemoryBlock state;
+        plugin.getStateInformation (state);
+        std::unique_ptr<juce::AudioProcessor> otherBase (createPluginFilter());
+        auto& other = dynamic_cast<PhotoToFrequencyProcessor&> (*otherBase);
+        other.setStateInformation (state.getData(), (int) state.getSize());
+        check (std::abs (other.apvts.getRawParameterValue ("regionTop")->load() - 0.6f) < 0.001f
+                && std::abs (other.apvts.getRawParameterValue ("cutoff")->load() - 6400.0f) < 1.0f,
+               "region and filter settings are restored from saved state");
+
+        // Back to neutral for the stress run.
+        setParam (plugin, "regionTop", 1.0f);
+        setParam (plugin, "cutoff", 20000.0f);
+        setParam (plugin, "filterEnvAmount", 0.0f);
+    }
+   #endif
+
     //==========================================================================
     std::cout << "Stress" << std::endl;
     {
@@ -290,11 +448,18 @@ int main (int argc, char* argv[])
                 if (auto writer = wav.createWriterFor (stream, options))
                     check (writer->writeFromAudioSampleBuffer (audio, 0, audio.getNumSamples()), "wrote " + wavFile.getFullPathName());
 
+               #if PTF_SPLIT
+                // Show a selected region in the screenshot.
+                setParam (fresh, "regionLeft", 0.45f);
+                setParam (fresh, "regionRight", 0.95f);
+                setParam (fresh, "regionBottom", 0.3f);
+                setParam (fresh, "regionTop", 0.9f);
+               #endif
+
                 fresh.setPreviewHeld (true);
                 render (fresh, {}, 1.3, 0.0);
                 std::unique_ptr<juce::AudioProcessorEditor> editor (fresh.createEditor());
-                editor->setSize (900, 620);
-                const auto snapshot = editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f);
+                                const auto snapshot = editor->createComponentSnapshot (editor->getLocalBounds(), true, 2.0f);
                 const auto pngFile = outDir.getChildFile ("editor.png");
                 pngFile.deleteFile();
                 juce::FileOutputStream pngStream (pngFile);

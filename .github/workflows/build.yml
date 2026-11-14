@@ -49,21 +49,35 @@ jobs:
         run: |
           run() { if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "$@"; else "$@"; fi; }
           run build/PhotoToFrequencyRenderTest_artefacts/Release/PhotoToFrequencyRenderTest
+          run build/PhotoToFrequencySplitRenderTest_artefacts/Release/PhotoToFrequencySplitRenderTest
           run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
             "build/PhotoToFrequency_artefacts/Release/VST3/Photo To Frequency.vst3"
+          run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
+            "build/PhotoToFrequencySplit_artefacts/Release/VST3/Photo To Frequency Split.vst3"
 
       - name: Package
         run: |
-          mkdir dist
-          cd build/PhotoToFrequency_artefacts/Release
+          # Both plugins go into one download per system.
+          mkdir dist stage
+          for plugin in PhotoToFrequency PhotoToFrequencySplit; do
+            out="build/${plugin}_artefacts/Release"
+            cp -R "$out"/VST3/*.vst3 stage/
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              cp -R "$out"/AU/*.component "$out"/Standalone/*.app stage/
+            elif [ "$RUNNER_OS" = "Windows" ]; then
+              cp "$out"/Standalone/*.exe stage/
+            else
+              cp "$out"/Standalone/* stage/
+            fi
+          done
+          ls stage
           if [ "$RUNNER_OS" = "macOS" ]; then
             # ditto keeps the bundle structure and code signature intact
-            mkdir stage && cp -R VST3/*.vst3 AU/*.component Standalone/*.app stage/
-            ditto -c -k stage "$GITHUB_WORKSPACE/dist/PhotoToFrequency-macOS.zip"
+            ditto -c -k stage dist/PhotoToFrequency-macOS.zip
           elif [ "$RUNNER_OS" = "Windows" ]; then
-            7z a "$GITHUB_WORKSPACE/dist/PhotoToFrequency-Windows.zip" ./VST3/*.vst3 ./Standalone/*.exe
+            (cd stage && 7z a ../dist/PhotoToFrequency-Windows.zip .)
           else
-            tar czf "$GITHUB_WORKSPACE/dist/PhotoToFrequency-Linux.tar.gz" -C VST3 "Photo To Frequency.vst3" -C ../Standalone "Photo To Frequency"
+            tar czf dist/PhotoToFrequency-Linux.tar.gz -C stage .
           fi
 
       - uses: actions/upload-artifact@v4
