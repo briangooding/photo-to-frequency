@@ -2,12 +2,18 @@
 
 namespace
 {
-    const juce::Colour background   { 0xff15171c };
-    const juce::Colour panel        { 0xff1f232b };
-    const juce::Colour outline      { 0xff343a46 };
-    const juce::Colour accent       { 0xffffb454 };
-    const juce::Colour textColour   { 0xffe6e8ec };
-    const juce::Colour dimText      { 0xff9aa1ad };
+    // Photo Freq is monochrome: neutral greys with white as the only accent, and
+    // brighter secondary text, so nothing relies on telling colours apart. The
+    // other two plugins keep their original blue-grey and amber.
+    constexpr bool mono = PluginConfig::isFreq;
+
+    const juce::Colour background   { mono ? 0xff101010 : 0xff15171c };
+    const juce::Colour panel        { mono ? 0xff1c1c1c : 0xff1f232b };
+    const juce::Colour outline      { mono ? 0xff4a4a4a : 0xff343a46 };
+    const juce::Colour accent       { mono ? 0xffffffff : 0xffffb454 };
+    const juce::Colour textColour   { mono ? 0xfff2f2f2 : 0xffe6e8ec };
+    const juce::Colour dimText      { mono ? 0xffc4c4c4 : 0xff9aa1ad };
+    const juce::Colour knobThumb    { mono ? 0xffffffff : 0xffe6e8ec };
 
     constexpr int margin = 16;
     constexpr int headerHeight = 44;
@@ -361,7 +367,7 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
     lookAndFeel.setColourScheme ({ background, panel, panel, outline, textColour, accent, textColour, accent, textColour });
     lookAndFeel.setColour (juce::Slider::rotarySliderFillColourId, accent);
     lookAndFeel.setColour (juce::Slider::rotarySliderOutlineColourId, outline);
-    lookAndFeel.setColour (juce::Slider::thumbColourId, textColour);
+    lookAndFeel.setColour (juce::Slider::thumbColourId, knobThumb);
     lookAndFeel.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     lookAndFeel.setColour (juce::Slider::textBoxTextColourId, dimText);
     lookAndFeel.setColour (juce::TextButton::buttonOnColourId, accent);
