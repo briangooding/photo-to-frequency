@@ -63,8 +63,12 @@ juce::String PhotoToFrequencyEditor::tooltipFor (const juce::String& id)
         { "filterDecay",     "Filter Decay: how long the filter envelope takes to fall from its peak to its Sustain level." },
         { "filterSustain",   "Filter Sustain: where the filter envelope settles while the key is held. 0 returns to the Cutoff setting; 1 stays at the full Env Amount." },
         { "filterRelease",   "Filter Release: how long the filter envelope takes to return to the Cutoff setting after the key is let go." },
-        { "subOn",           "Sub Oscillator: adds a pure sine wave below the played note for sub-bass weight. It follows the oscillator envelope but ignores the picture and the filter." },
-        { "subOctave",       "Sub Octave: whether the sub oscillator plays one or two octaves below the played note." },
+        { "oscOn",           "Osc On: switches the picture oscillator (all the partials made from the picture) on or off. Turn it off to hear the sub oscillator on its own." },
+        { "subOn",           "Sub Oscillator: switches on a simple wave below the played note for sub-bass weight. It follows the oscillator envelope but ignores the picture and the filter." },
+        { "subWave",         "Sub Wave: the shape of the sub oscillator. Sine is pure and round, Triangle a little brighter, Saw buzzy and Square hollow. Each is matched in loudness." },
+        { "subOctave",       "Sub Octave: whether the sub oscillator plays one, two or three octaves below the played note." },
+        { "subFine",         "Sub Fine: detunes the sub oscillator by up to a semitone either way, in cents. Small amounts make it beat slowly against the picture." },
+        { "subDrive",        "Sub Drive: saturates the sub oscillator, adding harmonics so it cuts through on small speakers. 0 is clean." },
         { "subLevel",        "Sub Level: volume of the sub oscillator." },
     };
 
@@ -373,6 +377,9 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
     lookAndFeel.setColour (juce::TextButton::buttonOnColourId, accent);
     lookAndFeel.setColour (juce::TextButton::textColourOnId, background);
     lookAndFeel.setColour (juce::ToggleButton::tickColourId, accent);
+    lookAndFeel.setColour (juce::TooltipWindow::backgroundColourId, juce::Colours::black);
+    lookAndFeel.setColour (juce::TooltipWindow::textColourId, juce::Colours::white);
+    lookAndFeel.setColour (juce::TooltipWindow::outlineColourId, juce::Colour (0xff5a5a5a));
     setLookAndFeel (&lookAndFeel);
 
     addAndMakeVisible (picture);
@@ -386,8 +393,20 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
 
     if (PluginConfig::isFreq)
     {
-        // Added as a child of the editor so tooltips also work inside a host's plugin window.
-        tooltipWindow = std::make_unique<juce::TooltipWindow> (this, 600);
+        addAndMakeVisible (tooltipsButton);
+        tooltipsButton.setTooltip ("Tooltips: show an explanation when you hover over a control. Switch off once you know your way around.");
+        tooltipsButton.setToggleState (processor.areTooltipsEnabled(), juce::dontSendNotification);
+        tooltipsButton.onClick = [this]
+        {
+            processor.setTooltipsEnabled (tooltipsButton.getToggleState());
+            updateTooltipWindow();
+        };
+        updateTooltipWindow();
+
+        addAndMakeVisible (oscButton);
+        oscButton.setTooltip (tooltipFor ("oscOn"));
+        oscAttachment = std::make_unique<APVTS::ButtonAttachment> (processor.apvts, "oscOn", oscButton);
+
         loadButton.setTooltip ("Load Image: choose a JPG, PNG or GIF to play. You can also drag a file onto the picture. The picture is saved with your project.");
         playButton.setTooltip ("Play: holds a C3 so you can hear the picture without a keyboard. Click again to stop.");
         invertButton.setTooltip (tooltipFor ("invert"));
@@ -432,7 +451,8 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
             addAndMakeVisible (subButton);
             subButton.setTooltip (tooltipFor ("subOn"));
             subAttachment = std::make_unique<APVTS::ButtonAttachment> (processor.apvts, "subOn", subButton);
-            groups.push_back ({ "SUB OSC", { addKnob ("subOctave", "Octave"), addKnob ("subLevel", "Level") }, {}, &subButton });
+            groups.push_back ({ "SUB OSC", { addKnob ("subWave", "Wave"), addKnob ("subOctave", "Octave"), addKnob ("subFine", "Fine"),
+                                             addKnob ("subDrive", "Drive"), addKnob ("subLevel", "Level") }, {}, &subButton });
         }
     }
     else
@@ -449,8 +469,8 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
 
     if (PluginConfig::isFreq)
     {
-        setResizeLimits (1060, getFixedHeight() + 200, 2200, getFixedHeight() + 1100);
-        setSize (1140, getFixedHeight() + 400);
+        setResizeLimits (1180, getFixedHeight() + 200, 2300, getFixedHeight() + 1100);
+        setSize (1280, getFixedHeight() + 400);
         fitWindowToImage();
     }
     else if (PluginConfig::isSplit)
@@ -484,6 +504,11 @@ PhotoToFrequencyEditor::Knob* PhotoToFrequencyEditor::addKnob (const juce::Strin
     if (auto* param = processor.apvts.getParameter (paramId))
         if (param->getLabel().isNotEmpty())
             knob->slider.setTextValueSuffix (" " + param->getLabel());
+
+    // A knob with only a few steps would otherwise need a very long drag to
+    // reach the next one, so it feels stuck. Give each step about 40 pixels.
+    if (auto* choice = dynamic_cast<juce::AudioParameterChoice*> (processor.apvts.getParameter (paramId)))
+        knob->slider.setMouseDragSensitivity (juce::jmax (40, 40 * (choice->choices.size() - 1)));
 
     addAndMakeVisible (knob->label);
     knob->label.setText (title, juce::dontSendNotification);
@@ -576,7 +601,7 @@ void PhotoToFrequencyEditor::paint (juce::Graphics& g)
     const auto info = statusMessage.isNotEmpty() ? statusMessage
                     : imageName.isNotEmpty()     ? imageName
                                                  : juce::String ("Built-in picture - drop a JPG here or use Load Image");
-    g.drawText (info, header.withTrimmedRight (240).reduced (8, 0), juce::Justification::centredLeft);
+    g.drawText (info, header.withTrimmedRight (PluginConfig::isFreq ? 350 : 240).reduced (8, 0), juce::Justification::centredLeft);
 
     // Controls panel
     const auto controls = getLocalBounds().reduced (margin).removeFromBottom (getControlsHeight());
@@ -608,6 +633,12 @@ void PhotoToFrequencyEditor::resized()
     header.removeFromRight (8);
     loadButton.setBounds (header.removeFromRight (130));
 
+    if (PluginConfig::isFreq)
+    {
+        header.removeFromRight (12);
+        tooltipsButton.setBounds (header.removeFromRight (96));
+    }
+
     auto controls = bounds.removeFromBottom (getControlsHeight()).reduced (12, 10);
     bounds.removeFromTop (10);
     bounds.removeFromBottom (margin);
@@ -627,7 +658,8 @@ void PhotoToFrequencyEditor::resized()
 
     // Choices
     auto topRow = controls.removeFromTop (choiceRowHeight);
-    const int choiceWidth = juce::jmin (190, (topRow.getWidth() - 110) / juce::jmax (1, choices.size()));
+    const int toggleSpace = PluginConfig::isFreq ? 210 : 110;
+    const int choiceWidth = juce::jmin (190, (topRow.getWidth() - toggleSpace) / juce::jmax (1, choices.size()));
 
     for (auto* choice : choices)
     {
@@ -637,6 +669,9 @@ void PhotoToFrequencyEditor::resized()
     }
 
     invertButton.setBounds (topRow.removeFromLeft (100).withTrimmedTop (18).withHeight (26));
+
+    if (PluginConfig::isFreq)
+        oscButton.setBounds (topRow.removeFromLeft (100).withTrimmedTop (18).withHeight (26));
 
     auto layOutKnobs = [] (const std::vector<Knob*>& row, juce::Rectangle<int> area, int knobWidth)
     {
@@ -679,6 +714,20 @@ void PhotoToFrequencyEditor::resized()
 }
 
 //==============================================================================
+void PhotoToFrequencyEditor::updateTooltipWindow()
+{
+    if (tooltipsButton.getToggleState())
+    {
+        // Added as a child of the editor so tooltips also work inside a host's plugin window.
+        if (tooltipWindow == nullptr)
+            tooltipWindow = std::make_unique<juce::TooltipWindow> (this, 600);
+    }
+    else
+    {
+        tooltipWindow.reset();
+    }
+}
+
 void PhotoToFrequencyEditor::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     refreshImage();

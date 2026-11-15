@@ -5,6 +5,17 @@ namespace
 {
     const juce::Identifier imageDataProperty ("imageData");
     const juce::Identifier imageNameProperty ("imageName");
+    const juce::Identifier tooltipsProperty ("showTooltips");
+}
+
+bool PhotoToFrequencyProcessor::areTooltipsEnabled() const
+{
+    return apvts.state.getProperty (tooltipsProperty, true);
+}
+
+void PhotoToFrequencyProcessor::setTooltipsEnabled (bool shouldShow)
+{
+    apvts.state.setProperty (tooltipsProperty, shouldShow, nullptr);
 }
 
 //==============================================================================
@@ -84,9 +95,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhotoToFrequencyProcessor::c
 
     if (PluginConfig::isFreq)
     {
+        layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "oscOn", 1 }, "Osc On", true));
         layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "subOn", 1 }, "Sub On", false));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "subWave", 1 }, "Sub Wave",
+                                                                  juce::StringArray { "Sine", "Triangle", "Saw", "Square" }, 0));
         layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "subOctave", 1 }, "Sub Octave",
-                                                                  juce::StringArray { "-1 oct", "-2 oct" }, 0));
+                                                                  juce::StringArray { "-1 oct", "-2 oct", "-3 oct" }, 0));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "subFine", 1 }, "Sub Fine",
+                                                  Range (-100.0f, 100.0f, 1.0f), 0.0f, Attributes().withLabel ("ct")));
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "subDrive", 1 }, "Sub Drive",
+                                                  Range (0.0f, 1.0f, 0.01f), 0.0f));
         layout.add (std::make_unique<FloatParam> (juce::ParameterID { "subLevel", 1 }, "Sub Level",
                                                   Range (0.0f, 1.0f, 0.01f), 0.5f));
     }
@@ -132,8 +150,12 @@ PhotoToFrequencyProcessor::PhotoToFrequencyProcessor()
 
     if (PluginConfig::isFreq)
     {
+        params.oscOn     = apvts.getRawParameterValue ("oscOn");
         params.subOn     = apvts.getRawParameterValue ("subOn");
+        params.subWave   = apvts.getRawParameterValue ("subWave");
         params.subOctave = apvts.getRawParameterValue ("subOctave");
+        params.subFine   = apvts.getRawParameterValue ("subFine");
+        params.subDrive  = apvts.getRawParameterValue ("subDrive");
         params.subLevel  = apvts.getRawParameterValue ("subLevel");
     }
 
@@ -238,8 +260,12 @@ EngineParams PhotoToFrequencyProcessor::readParams() const
 
     if (PluginConfig::isFreq)
     {
+        p.oscOn      = params.oscOn->load() > 0.5f;
         p.subOn      = params.subOn->load() > 0.5f;
+        p.subWave    = juce::roundToInt (params.subWave->load());
         p.subOctaves = 1 + juce::roundToInt (params.subOctave->load());
+        p.subFine    = params.subFine->load();
+        p.subDrive   = params.subDrive->load();
         p.subLevel   = params.subLevel->load();
     }
 

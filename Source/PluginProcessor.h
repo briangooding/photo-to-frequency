@@ -54,6 +54,10 @@ public:
     void setPreviewHeld (bool shouldPlay) noexcept          { previewHeld.store (shouldPlay); }
     bool isPreviewHeld() const noexcept                     { return previewHeld.load(); }
 
+    /** Photo Freq: whether hovering shows tooltips. Saved with the project; message thread only. */
+    bool areTooltipsEnabled() const;
+    void setTooltipsEnabled (bool);
+
     static constexpr int previewNoteId = 1000;
     static constexpr float previewPitch = 48.0f;   // C3
 
@@ -92,7 +96,8 @@ private:
                           * filterAttack = nullptr, *filterDecay = nullptr, *filterSustain = nullptr, *filterRelease = nullptr;
 
         // Photo Freq only.
-        std::atomic<float>* subOn = nullptr, *subOctave = nullptr, *subLevel = nullptr;
+        std::atomic<float>* oscOn = nullptr, *subOn = nullptr, *subWave = nullptr, *subOctave = nullptr,
+                          * subFine = nullptr, *subDrive = nullptr, *subLevel = nullptr;
     } params;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhotoToFrequencyProcessor)

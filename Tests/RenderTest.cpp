@@ -452,6 +452,82 @@ int main (int argc, char* argv[])
         check (other.apvts.getRawParameterValue ("subOn")->load() > 0.5f
                 && juce::roundToInt (other.apvts.getRawParameterValue ("subOctave")->load()) == 1,
                "sub oscillator settings are restored from saved state");
+
+        // Steady part of a held note: from 0.5 s to 1.5 s.
+        auto steady = [&] (const juce::AudioBuffer<float>& rendered)
+        {
+            juce::AudioBuffer<float> part (1, sr);
+            part.copyFrom (0, 0, rendered, 0, sr / 2, sr);
+            return part;
+        };
+
+        auto crest = [&] (const juce::AudioBuffer<float>& part)
+        {
+            return part.getMagnitude (0, 0, part.getNumSamples()) / juce::jmax (1.0e-9f, part.getRMSLevel (0, 0, part.getNumSamples()));
+        };
+
+        setParam (plugin, "subOctave", 0.0f);
+        setParam (plugin, "subLevel", 1.0f);
+
+        setParam (plugin, "subOctave", 2.0f);
+        const int threeDown = crossings (render (plugin, { 48 }, 2.0, 0.2));
+        std::cout << "    three octaves down: " << threeDown << " zero crossings a second" << std::endl;
+        check (threeDown >= 31 && threeDown <= 34, "or three octaves below");
+        setParam (plugin, "subOctave", 0.0f);
+
+        // 65.4 Hz up a semitone is 69.3 Hz: about 139 zero crossings a second.
+        setParam (plugin, "subFine", 100.0f);
+        const int fineUp = crossings (render (plugin, { 48 }, 2.0, 0.2));
+        std::cout << "    fine +100 cents: " << fineUp << " zero crossings a second" << std::endl;
+        check (fineUp >= 137 && fineUp <= 141, "fine tune moves it by up to a semitone");
+        setParam (plugin, "subFine", 0.0f);
+
+        // Each wave shape is about as loud as the sine, but shaped differently.
+        float waveRms[4] = {}, waveCrest[4] = {};
+
+        for (int wave = 0; wave < 4; ++wave)
+        {
+            setParam (plugin, "subWave", (float) wave);
+            const auto waveAudio = render (plugin, { 48 }, 2.0, 0.2);
+            const auto part = steady (waveAudio);
+            waveRms[wave] = part.getRMSLevel (0, 0, sr);
+            waveCrest[wave] = crest (part);
+            check (measure (waveAudio).finite, "wave " + juce::String (wave) + " is finite");
+        }
+
+        std::cout << "    rms sine " << waveRms[0] << ", triangle " << waveRms[1] << ", saw " << waveRms[2] << ", square " << waveRms[3]
+                  << "; crest " << waveCrest[0] << ", " << waveCrest[1] << ", " << waveCrest[2] << ", " << waveCrest[3] << std::endl;
+
+        for (int wave = 1; wave < 4; ++wave)
+            check (std::abs (waveRms[wave] - waveRms[0]) < 0.15f * waveRms[0], "wave " + juce::String (wave) + " matches the sine's loudness");
+
+        check (std::abs (waveCrest[0] - 1.414f) < 0.08f, "sine wave is a sine");
+        check (waveCrest[1] > 1.6f && waveCrest[2] > 1.6f, "triangle and saw are peakier than a sine");
+        check (waveCrest[3] < 1.25f, "square is flat-topped");
+        setParam (plugin, "subWave", 0.0f);
+
+        // Drive squares the sine off.
+        setParam (plugin, "subDrive", 1.0f);
+        const auto drivenAudio = render (plugin, { 48 }, 2.0, 0.2);
+        const float drivenCrest = crest (steady (drivenAudio));
+        std::cout << "    driven sine crest " << drivenCrest << std::endl;
+        check (measure (drivenAudio).finite && drivenCrest < 1.3f, "drive saturates the sub");
+        setParam (plugin, "subDrive", 0.0f);
+
+        // The picture oscillator can be switched off, leaving only the sub.
+        juce::Image white (juce::Image::RGB, 64, 64, true);
+        white.clear (white.getBounds(), juce::Colours::white);
+        plugin.setImage (white, "white");
+        setParam (plugin, "subOn", 0.0f);
+        check (measure (render (plugin, { 48 }, 1.0, 0.2)).rmsL > 0.01f, "picture oscillator is on by default");
+        setParam (plugin, "oscOn", 0.0f);
+        check (measure (render (plugin, { 48 }, 1.0, 0.2)).peak < 1.0e-4f, "picture oscillator can be switched off");
+        setParam (plugin, "subOn", 1.0f);
+        const int subOnly = crossings (render (plugin, { 48 }, 2.0, 0.2));
+        check (subOnly >= 129 && subOnly <= 133, "with it off the sub still plays on its own");
+        setParam (plugin, "oscOn", 1.0f);
+        setParam (plugin, "subOn", 0.0f);
+        setParam (plugin, "subLevel", 0.5f);
     }
 
     std::cout << "Freq: picture panel follows the picture's shape" << std::endl;
@@ -513,6 +589,75 @@ int main (int argc, char* argv[])
         std::cout << "    " << withTooltip << " of " << controls << " controls have a tooltip" << std::endl;
         check (hasTooltipWindow, "editor shows tooltips");
         check (controls >= 27 && withTooltip == controls, "every control has a tooltip");
+
+        // Tooltips are white on black.
+        auto& laf = editor->getLookAndFeel();
+        check (laf.findColour (juce::TooltipWindow::backgroundColourId) == juce::Colours::black
+                && laf.findColour (juce::TooltipWindow::textColourId) == juce::Colours::white,
+               "tooltips are white text on black");
+
+        // Knobs with only a few steps turn by a short drag.
+        int steppedKnobs = 0;
+        bool steppedKnobsTurn = true;
+
+        for (auto* child : editor->getChildren())
+        {
+            if (auto* slider = dynamic_cast<juce::Slider*> (child))
+            {
+                const auto steps = slider->getRange().getLength() / juce::jmax (1.0e-9, slider->getInterval());
+
+                if (steps >= 1.0 && steps <= 4.0)
+                {
+                    ++steppedKnobs;
+                    const double pixelsPerStep = slider->getMouseDragSensitivity() / steps;
+                    steppedKnobsTurn = steppedKnobsTurn && pixelsPerStep <= 50.0;
+                }
+            }
+        }
+
+        check (steppedKnobs == 2 && steppedKnobsTurn, "sub Wave and Octave knobs move a step every 40 pixels");
+
+        // The header switch turns tooltips off and on, and the choice is saved.
+        juce::ToggleButton* tooltipsSwitch = nullptr;
+        bool hasOscSwitch = false;
+
+        for (auto* child : editor->getChildren())
+        {
+            if (auto* toggle = dynamic_cast<juce::ToggleButton*> (child))
+            {
+                if (toggle->getButtonText() == "Tooltips")  tooltipsSwitch = toggle;
+                if (toggle->getButtonText() == "Osc On")    hasOscSwitch = true;
+            }
+        }
+
+        auto countTooltipWindows = [] (juce::Component& c)
+        {
+            int count = 0;
+            for (auto* child : c.getChildren())
+                if (dynamic_cast<juce::TooltipWindow*> (child) != nullptr)
+                    ++count;
+            return count;
+        };
+
+        check (hasOscSwitch, "picture oscillator has an on/off switch");
+        check (tooltipsSwitch != nullptr && tooltipsSwitch->getToggleState(), "tooltips switch is in the header, on by default");
+
+        if (tooltipsSwitch != nullptr)
+        {
+            tooltipsSwitch->setToggleState (false, juce::sendNotificationSync);
+            check (countTooltipWindows (*editor) == 0 && ! plugin.areTooltipsEnabled(), "tooltips switch turns them off");
+
+            juce::MemoryBlock state;
+            plugin.getStateInformation (state);
+            std::unique_ptr<juce::AudioProcessor> otherBase (createPluginFilter());
+            auto& other = dynamic_cast<PhotoToFrequencyProcessor&> (*otherBase);
+            other.setStateInformation (state.getData(), (int) state.getSize());
+            std::unique_ptr<juce::AudioProcessorEditor> otherEditor (other.createEditor());
+            check (countTooltipWindows (*otherEditor) == 0, "tooltips stay off when the project is reopened");
+
+            tooltipsSwitch->setToggleState (true, juce::sendNotificationSync);
+            check (countTooltipWindows (*editor) == 1 && plugin.areTooltipsEnabled(), "and back on");
+        }
 
         setParam (plugin, "subOn", 0.0f);
     }

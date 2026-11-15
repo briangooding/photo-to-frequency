@@ -55,6 +55,25 @@ namespace
         }
     }
 
+    /** Correction that takes the aliasing out of a jump in a saw or square.
+        phase is where the jump is (0..1), dt the phase step per sample. */
+    float polyBlep (float phase, float dt)
+    {
+        if (phase < dt)
+        {
+            const float t = phase / dt;
+            return t + t - t * t - 1.0f;
+        }
+
+        if (phase > 1.0f - dt)
+        {
+            const float t = (phase - 1.0f) / dt;
+            return t * t + t + t + 1.0f;
+        }
+
+        return 0.0f;
+    }
+
     /** Time for an exponential segment to fall by 60 dB. */
     float decayCoefficient (float seconds, double sampleRate)
     {
@@ -321,9 +340,8 @@ void SynthEngine::Voice::start (int id, float midiPitch, float vel, uint64_t sta
     ampL.fill (0.0f);
     ampR.fill (0.0f);
 
-    // Starts at a zero crossing, rising.
-    subRe = 0.0f;
-    subIm = -1.0f;
+    // Phase 0 is a rising zero crossing for the sine and triangle.
+    subPhase = 0.0;
     subAmp = 0.0f;
 }
 
@@ -471,7 +489,8 @@ void SynthEngine::Voice::render (float* left, float* right, int numSamples,
         const auto i = (size_t) k;
         float targetL = 0.0f, targetR = 0.0f;
 
-        if (audible[i])
+        // With the picture oscillator off the partials ramp down to silence.
+        if (p.oscOn && audible[i])
         {
             float value = sample (brightness, i);
 
@@ -548,26 +567,61 @@ void SynthEngine::Voice::render (float* left, float* right, int numSamples,
 
         if (subAmp > silence || target > silence)
         {
-            const float subFrequency = baseFrequency * std::pow (0.5f, (float) juce::jlimit (1, 3, p.subOctaves));
-            const float w = juce::MathConstants<float>::twoPi * subFrequency / (float) sr;
-            const float c = std::cos (w), s = std::sin (w);
+            const float subFrequency = baseFrequency * std::pow (0.5f, (float) juce::jlimit (1, 3, p.subOctaves))
+                                        * std::pow (2.0f, juce::jlimit (-100.0f, 100.0f, p.subFine) / 1200.0f);
+            const double increment = juce::jmin (0.45, (double) subFrequency / sr);
+            const float dt = (float) increment;
+            const int wave = juce::jlimit ((int) EngineParams::subSine, (int) EngineParams::subSquare, p.subWave);
+
+            // Every wave is scaled to the sine's loudness, so switching shape keeps the level.
+            static constexpr float waveGain[] = { 1.0f, 1.2247f, 1.2247f, 0.7071f };
+
+            const float drive = juce::jlimit (0.0f, 1.0f, p.subDrive);
+            const float driveAmount = 1.0f + 9.0f * drive;
+            const float driveNormal = drive > 0.0f ? 1.0f / std::tanh (driveAmount) : 1.0f;
+
             const float step = (target - subAmp) * rampScale;
 
             for (int n = 0; n < numSamples; ++n)
             {
-                const float value = subRe * subAmp;
+                const float phase = (float) subPhase;
+                float value;
+
+                switch (wave)
+                {
+                    case EngineParams::subTriangle:
+                        value = phase < 0.25f ? 4.0f * phase : phase < 0.75f ? 2.0f - 4.0f * phase : 4.0f * phase - 4.0f;
+                        break;
+
+                    case EngineParams::subSaw:
+                        value = 2.0f * phase - 1.0f - polyBlep (phase, dt);
+                        break;
+
+                    case EngineParams::subSquare:
+                    {
+                        const float halfPhase = phase < 0.5f ? phase + 0.5f : phase - 0.5f;
+                        value = (phase < 0.5f ? 1.0f : -1.0f) + polyBlep (phase, dt) - polyBlep (halfPhase, dt);
+                        break;
+                    }
+
+                    default:
+                        value = std::sin (juce::MathConstants<float>::twoPi * phase);
+                        break;
+                }
+
+                if (drive > 0.0f)
+                    value = std::tanh (value * driveAmount) * driveNormal;
+
+                value *= waveGain[wave] * subAmp;
                 mixL[n] += value;
                 mixR[n] += value;
                 subAmp += step;
 
-                const float nextRe = subRe * c - subIm * s;
-                subIm = subRe * s + subIm * c;
-                subRe = nextRe;
-            }
+                subPhase += increment;
 
-            const float correction = 1.5f - 0.5f * (subRe * subRe + subIm * subIm);
-            subRe *= correction;
-            subIm *= correction;
+                if (subPhase >= 1.0)
+                    subPhase -= 1.0;
+            }
         }
 
         subAmp = target;

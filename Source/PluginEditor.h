@@ -116,6 +116,9 @@ private:
     /** Photo Freq: makes the window as tall as the picture needs at the current width. */
     void fitWindowToImage();
 
+    /** Photo Freq: creates or removes the tooltip window to match the Tooltips switch. */
+    void updateTooltipWindow();
+
     static juce::String tooltipFor (const juce::String& paramId);
 
     PhotoToFrequencyProcessor& processor;
@@ -126,8 +129,11 @@ private:
     juce::TextButton playButton { "Play" };
     juce::ToggleButton invertButton { "Invert" };
     std::unique_ptr<APVTS::ButtonAttachment> invertAttachment;
+    juce::ToggleButton oscButton { "Osc On" };
+    std::unique_ptr<APVTS::ButtonAttachment> oscAttachment;
     juce::ToggleButton subButton { "On" };
     std::unique_ptr<APVTS::ButtonAttachment> subAttachment;
+    juce::ToggleButton tooltipsButton { "Tooltips" };
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;
     float imageAspect = 2.0f;   // width / height of the loaded picture
 

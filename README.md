@@ -68,12 +68,17 @@ and the whole picture selected, it sounds the same as the original.
 A third plugin, built on Split and installed alongside the other two. It has
 everything Split has and adds:
 
-- **Sub oscillator.** A pure sine one or two octaves below each played note,
-  with an **On** switch, **Octave** and **Level**. It follows the oscillator
-  envelope but ignores the picture and the filter, so the bass stays solid
-  whatever the picture is doing. It is off by default.
+- **Sub oscillator.** A simple wave one, two or three octaves below each
+  played note, with an **On** switch, **Wave** (Sine, Triangle, Saw or Square,
+  matched in loudness), **Octave**, **Fine** (up to 100 cents either way),
+  **Drive** (saturation) and **Level**. It follows the oscillator envelope but
+  ignores the picture and the filter, so the bass stays solid whatever the
+  picture is doing. It is off by default.
+- **Osc On** switches the picture oscillator itself off and on, so the sub can
+  be heard on its own.
 - **Tooltips.** Hover over any control, or the picture, for an explanation of
-  what it does.
+  what it does, in white on black. The **Tooltips** switch at the top turns
+  them off; the choice is saved with the project.
 - **Picture panel in the picture's shape.** The panel takes the proportions of
   the loaded picture instead of stretching it, and the window adjusts its
   height to suit when a picture is loaded. Resizing the window keeps the shape.
