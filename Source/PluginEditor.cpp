@@ -49,6 +49,7 @@ juce::String PhotoToFrequencyEditor::tooltipFor (const juce::String& id)
         { "width",           "Stereo Width: how far apart in the speakers the partials are spread. 0% is mono; 100% uses the full width. Stereo Source decides which side each partial goes to." },
         { "stereoSource",    "Stereo Source: what places each partial left or right. Colour: red parts of the picture lean left and blue parts lean right, so a black-and-white or single-colour picture stays in the centre. Alternate: neighbouring rows go to opposite sides, giving a wide sound from any picture. Pitch: low rows on the left rising to high rows on the right." },
         { "reverse",         "Reverse: scans the picture from right to left instead of left to right. Works with every Scan Mode; in Ping-Pong the first pass goes right to left." },
+        { "subFollow",       "Sub Follow: how much the picture under the scan head controls the sub oscillator's volume. 0% keeps the sub steady; 100% makes it swell in bright parts of the picture and go quiet in dark ones, so the bass plays the picture's rhythm. Works even with Osc On switched off." },
         { "filterEnvAmount", "Env Amount: how far the filter envelope moves the cutoff. +100% sweeps it up across the whole audible range (10 octaves), +50% about 5 octaves, +10% about one octave. Negative amounts sweep it down instead; 0 leaves the cutoff where it is." },
     };
 
@@ -496,8 +497,14 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
             addAndMakeVisible (subButton);
             subButton.setTooltip (tooltipFor ("subOn"));
             subAttachment = std::make_unique<APVTS::ButtonAttachment> (processor.apvts, "subOn", subButton);
-            groups.push_back ({ "SUB OSC", { addKnob ("subWave", "Wave"), addKnob ("subOctave", "Octave"), addKnob ("subFine", "Fine"),
-                                             addKnob ("subDrive", "Drive"), addKnob ("subLevel", "Level") }, {}, &subButton });
+            std::vector<Knob*> subKnobs { addKnob ("subWave", "Wave"), addKnob ("subOctave", "Octave"), addKnob ("subFine", "Fine"),
+                                          addKnob ("subDrive", "Drive") };
+
+            if (PluginConfig::isFreq3)
+                subKnobs.push_back (addKnob ("subFollow", "Follow"));
+
+            subKnobs.push_back (addKnob ("subLevel", "Level"));
+            groups.push_back ({ "SUB OSC", subKnobs, {}, &subButton });
         }
     }
     else
@@ -514,8 +521,8 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
 
     if (PluginConfig::isFreq)
     {
-        setResizeLimits (1180, getFixedHeight() + 200, 2300, getFixedHeight() + 1100);
-        setSize (1280, getFixedHeight() + 400);
+        setResizeLimits (PluginConfig::isFreq3 ? 1240 : 1180, getFixedHeight() + 200, 2300, getFixedHeight() + 1100);
+        setSize (PluginConfig::isFreq3 ? 1320 : 1280, getFixedHeight() + 400);
         fitWindowToImage();
     }
     else if (PluginConfig::isSplit)
@@ -835,7 +842,8 @@ void PhotoToFrequencyEditor::loadFile (const juce::File& file)
 
 juce::File PhotoToFrequencyEditor::getPatchFolder()
 {
-    auto folder = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Photo Freq 2 Patches");
+    auto folder = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                    .getChildFile (juce::String (PluginConfig::displayName) + " Patches");
     folder.createDirectory();
     return folder;
 }
@@ -889,7 +897,7 @@ void PhotoToFrequencyEditor::chooseLoadPatch()
 void PhotoToFrequencyEditor::loadPatchFile (const juce::File& file)
 {
     statusMessage = processor.loadPatch (file) ? juce::String()
-                                               : "Couldn't read " + file.getFileName() + " as a Photo Freq 2 patch";
+                                               : "Couldn't read " + file.getFileName() + " as a " + PluginConfig::displayName + " patch";
     refreshImage();
 }
 

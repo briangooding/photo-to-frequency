@@ -132,6 +132,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhotoToFrequencyProcessor::c
                                                   Range (0.0f, 1.0f, 0.01f), 0.5f));
     }
 
+    if (PluginConfig::isFreq3)
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "subFollow", 1 }, "Sub Follow",
+                                                  Range (0.0f, 100.0f, 1.0f), 0.0f, Attributes().withLabel ("%")));
+
     return layout;
 }
 
@@ -187,6 +191,9 @@ PhotoToFrequencyProcessor::PhotoToFrequencyProcessor()
         params.reverse      = apvts.getRawParameterValue ("reverse");
         params.stereoSource = apvts.getRawParameterValue ("stereoSource");
     }
+
+    if (PluginConfig::isFreq3)
+        params.subFollow = apvts.getRawParameterValue ("subFollow");
 
     setImage (ImageSpectrum::createDefaultImage(), {});
 }
@@ -305,6 +312,9 @@ EngineParams PhotoToFrequencyProcessor::readParams() const
         p.reverse         = params.reverse->load() > 0.5f;
         p.stereoSource    = juce::roundToInt (params.stereoSource->load());
     }
+
+    if (PluginConfig::isFreq3)
+        p.subFollow = juce::jlimit (0.0f, 1.0f, params.subFollow->load() / 100.0f);
 
     return p;
 }
@@ -486,6 +496,14 @@ bool PhotoToFrequencyProcessor::loadPatch (const juce::File& file)
         return false;
 
     auto state = juce::ValueTree::readFromData (data.getData(), data.getSize());
+
+    // A patch from the previous version: same parameters, so it only needs the new name.
+    if (state.isValid() && *PluginConfig::olderPatchStateType != 0 && state.hasType (PluginConfig::olderPatchStateType))
+    {
+        juce::ValueTree converted (apvts.state.getType());
+        converted.copyPropertiesAndChildrenFrom (state, nullptr);
+        state = converted;
+    }
 
     if (! state.isValid() || ! state.hasType (apvts.state.getType()))
         return false;

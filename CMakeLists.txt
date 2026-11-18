@@ -83,6 +83,7 @@ ptf_add_plugin(PhotoToFrequency      "Photo To Frequency"       Ptf1 "com.photot
 ptf_add_plugin(PhotoToFrequencySplit "Photo To Frequency Split" Ptf2 "com.phototofrequency.split"  1)
 ptf_add_plugin(PhotoFreq             "Photo Freq"               Ptf3 "com.phototofrequency.freq"   2)
 ptf_add_plugin(PhotoFreq2            "Photo Freq 2"             Ptf4 "com.phototofrequency.freq2"  3)
+ptf_add_plugin(PhotoFreq3            "Photo Freq 3"             Ptf5 "com.phototofrequency.freq3"  4)
 
 if(PTF_BUILD_TESTS)
     # Loads a built .vst3 through JUCE's VST3 host, the way a DAW would.
@@ -95,5 +96,5 @@ if(PTF_BUILD_TESTS)
     target_link_libraries(PhotoToFrequencyHostCheck PRIVATE
         juce::juce_audio_utils
         juce::juce_recommended_config_flags)
-    add_dependencies(PhotoToFrequencyHostCheck PhotoFreq2_VST3)
+    add_dependencies(PhotoToFrequencyHostCheck PhotoFreq3_VST3)
 endif()

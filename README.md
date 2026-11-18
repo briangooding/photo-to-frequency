@@ -111,26 +111,34 @@ everything Photo Freq has and adds:
   audible range (10 octaves, 20 Hz to 20 kHz), +50% about 5 octaves, and
   negative amounts sweep downwards.
 
+## Photo Freq 3
+
+The newest version, built on Photo Freq 2. It has everything Photo Freq 2 has
+and adds:
+
+- **Sub Follow.** A **Follow** knob in the sub oscillator lets the picture
+  under the scan head control the sub's volume. At 0% (the default) the sub is
+  steady, as before; at 100% it swells where the selected part of the picture is
+  bright and goes silent where it is dark, so the bass plays the picture's
+  rhythm; 50% keeps it at least half as loud. Loudness is judged the same way as
+  the picture oscillator's (Contrast, Threshold, Invert and Tilt all count), and
+  it follows Reverse and the selected part. It works with **Osc On** switched
+  off, so the sub alone can play the picture.
+- Opens patches saved by Photo Freq 2. Its own patches go in a
+  `Photo Freq 3 Patches` folder in Documents by default.
+
 ## Getting the plugin
 
-Every push builds Windows, macOS (universal) and Linux versions of the newest
-plugin, Photo Freq 2: open the latest run under the repository's **Actions**
-tab and download `PhotoFreq2-Windows`, `PhotoFreq2-macOS` or `PhotoFreq2-Linux`.
-(The older plugins are still in the sources and can be built locally, but
-aren't part of the download.) Copy `Photo Freq 2.vst3` to:
+Every push builds the newest plugin, Photo Freq 3, for Windows: open the
+latest run under the repository's **Actions** tab and download
+`PhotoFreq3-Windows`. It contains `Photo Freq 3.vst3` and the standalone
+`Photo Freq 3.exe`. (The older plugins and the macOS/Linux versions can still
+be built from the sources, but aren't part of the download.) Copy the `.vst3`
+to:
 
-| System | VST3 folder |
-| --- | --- |
-| Windows | `C:\Program Files\Common Files\VST3` |
-| macOS | `~/Library/Audio/Plug-Ins/VST3` (the `.component` goes in `~/Library/Audio/Plug-Ins/Components`) |
-| Linux | `~/.vst3` |
-
-The builds are not signed with a developer certificate. On macOS, clear the
-download quarantine once before rescanning in your DAW:
-
-    xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"Photo Freq 2.vst3"
-
-A standalone app is included for trying it without a DAW.
+`C:\Program Files\Common Files\VST3`, then rescan plugins in your DAW. The
+build isn't signed with a developer certificate, so Windows may ask before
+running the standalone app the first time.
 
 ## Building
 

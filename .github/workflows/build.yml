@@ -7,23 +7,17 @@ on:
 permissions:
   contents: read
 
+# Only the newest plugin is built and shipped, for Windows only. When a new
+# version is added, change these three lines.
+env:
+  PLUGIN_TARGET: PhotoFreq3
+  PLUGIN_NAME: Photo Freq 3
+  ARTIFACT_NAME: PhotoFreq3-Windows
+
 jobs:
   build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Windows
-            os: windows-latest
-            cmake_args: ""
-          - name: macOS
-            os: macos-latest
-            cmake_args: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-          - name: Linux
-            os: ubuntu-latest
-            cmake_args: -G Ninja
+    name: Windows
+    runs-on: windows-latest
     defaults:
       run:
         shell: bash
@@ -31,53 +25,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build xvfb libasound2-dev libx11-dev libxext-dev \
-            libxrandr-dev libxinerama-dev libxcursor-dev libxcomposite-dev \
-            libfreetype-dev libfontconfig1-dev
-
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        # Only the newest plugin is built and shipped; the older ones stay in the
-        # sources but aren't part of the download.
-        run: cmake --build build --config Release --parallel 4 --target PhotoFreq2_VST3 PhotoFreq2_Standalone PhotoFreq2RenderTest PhotoToFrequencyHostCheck $([ "$RUNNER_OS" = "macOS" ] && echo PhotoFreq2_AU)
+        run: >
+          cmake --build build --config Release --parallel 4 --target
+          ${PLUGIN_TARGET}_VST3 ${PLUGIN_TARGET}_Standalone ${PLUGIN_TARGET}RenderTest PhotoToFrequencyHostCheck
 
       - name: Test
         run: |
-          run() { if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "$@"; else "$@"; fi; }
-          run build/PhotoFreq2RenderTest_artefacts/Release/PhotoFreq2RenderTest
-          run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
-            "build/PhotoFreq2_artefacts/Release/VST3/Photo Freq 2.vst3"
+          build/${PLUGIN_TARGET}RenderTest_artefacts/Release/${PLUGIN_TARGET}RenderTest
+          build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
+            "build/${PLUGIN_TARGET}_artefacts/Release/VST3/${PLUGIN_NAME}.vst3"
 
       - name: Package
         run: |
-          mkdir dist stage
-          out="build/PhotoFreq2_artefacts/Release"
+          mkdir stage
+          out="build/${PLUGIN_TARGET}_artefacts/Release"
           cp -R "$out"/VST3/*.vst3 stage/
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            cp -R "$out"/AU/*.component "$out"/Standalone/*.app stage/
-          elif [ "$RUNNER_OS" = "Windows" ]; then
-            cp "$out"/Standalone/*.exe stage/
-          else
-            cp "$out"/Standalone/* stage/
-          fi
+          cp "$out"/Standalone/*.exe stage/
           ls stage
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            # ditto keeps the bundle structure and code signature intact
-            ditto -c -k stage dist/PhotoFreq2-macOS.zip
-          elif [ "$RUNNER_OS" = "Windows" ]; then
-            (cd stage && 7z a ../dist/PhotoFreq2-Windows.zip .)
-          else
-            tar czf dist/PhotoFreq2-Linux.tar.gz -C stage .
-          fi
 
+      # The artifact is the zip itself, so the download has the plugin straight inside.
       - uses: actions/upload-artifact@v4
         with:
-          name: PhotoFreq2-${{ matrix.name }}
-          path: dist/*
+          name: ${{ env.ARTIFACT_NAME }}
+          path: stage/
           if-no-files-found: error

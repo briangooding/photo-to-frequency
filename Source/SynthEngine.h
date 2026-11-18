@@ -65,6 +65,7 @@ struct EngineParams
     float subFine    = 0.0f;    // cents, -100..100
     float subDrive   = 0.0f;    // 0..1 saturation
     float subLevel   = 0.5f;    // 0..1
+    float subFollow  = 0.0f;    // 0..1: how much the picture under the scan head sets the sub's level
 };
 
 /**

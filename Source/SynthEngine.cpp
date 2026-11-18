@@ -582,7 +582,38 @@ void SynthEngine::Voice::render (float* left, float* right, int numSamples,
     // Sub oscillator, centred. Its level is ramped so switching it is click-free.
     {
         constexpr float fullLevel = 0.5f;   // matches the loudest moment of the picture
-        const float target = p.subOn ? fullLevel * juce::jlimit (0.0f, 1.0f, p.subLevel) : 0.0f;
+        float target = p.subOn ? fullLevel * juce::jlimit (0.0f, 1.0f, p.subLevel) : 0.0f;
+
+        // Follow: the sub swells and fades with the picture under the scan head.
+        // Loudness is measured like the auto-level does it, so the loudest part
+        // of the selected picture is 1 and black is 0. It is measured whether or
+        // not the picture oscillator is on, so the sub can play the picture alone.
+        const float follow = juce::jlimit (0.0f, 1.0f, p.subFollow);
+
+        if (target > 0.0f && follow > 0.0f)
+        {
+            float power = 0.0f;
+
+            for (int k = 0; k < numPartials; ++k)
+            {
+                const auto i = (size_t) k;
+                float value = sample (brightness, i);
+
+                if (p.invert)
+                    value = 1.0f - value;
+
+                value = (value - p.threshold) * thresholdScale;
+
+                if (value > 0.0f)
+                {
+                    const float amplitude = std::pow (value, p.contrast) * shared.tiltGain[i] * shared.normalise;
+                    power += amplitude * amplitude;
+                }
+            }
+
+            const float loudness = juce::jlimit (0.0f, 1.0f, std::sqrt (power) / fullLevel);
+            target *= 1.0f - follow + follow * loudness;
+        }
 
         if (subAmp > silence || target > silence)
         {

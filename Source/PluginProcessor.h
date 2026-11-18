@@ -121,6 +121,9 @@ private:
 
         // Photo Freq 2 only.
         std::atomic<float>* reverse = nullptr, *stereoSource = nullptr;
+
+        // Photo Freq 3 only.
+        std::atomic<float>* subFollow = nullptr;
     } params;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhotoToFrequencyProcessor)

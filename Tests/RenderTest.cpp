@@ -960,6 +960,81 @@ int main (int argc, char* argv[])
     }
    #endif
 
+   #if PTF_VARIANT >= 4
+    //==========================================================================
+    std::cout << "Freq 3: sub follows the picture" << std::endl;
+    {
+        constexpr int sr = 48000;
+
+        // Bright on the left half only; scanned once over two seconds.
+        juce::Image halfLit (juce::Image::RGB, 400, 200, true);
+        {
+            juce::Graphics g (halfLit);
+            g.fillAll (juce::Colours::black);
+            g.setColour (juce::Colours::white);
+            g.fillRect (0, 0, 200, 200);
+        }
+        plugin.setImage (halfLit, "half");
+        setParam (plugin, "loop", (float) EngineParams::oneShot);
+        setParam (plugin, "scan", 2.0f);
+        setParam (plugin, "subOn", 1.0f);
+        setParam (plugin, "subLevel", 1.0f);
+        setParam (plugin, "oscOn", 0.0f);   // so only the sub is heard
+
+        check (plugin.apvts.getRawParameterValue ("subFollow")->load() < 0.01f, "Follow is 0% by default");
+
+        auto halves = [&] (float& bright, float& dark)
+        {
+            const auto audio = render (plugin, { 48 }, 2.0, 0.1);
+            bright = audio.getRMSLevel (0, sr / 5, sr / 2);
+            dark   = audio.getRMSLevel (0, sr + sr / 5, sr / 2);
+        };
+
+        float steadyBright, steadyDark, halfBright, halfDark, fullBright, fullDark;
+        halves (steadyBright, steadyDark);
+        setParam (plugin, "subFollow", 50.0f);
+        halves (halfBright, halfDark);
+        setParam (plugin, "subFollow", 100.0f);
+        halves (fullBright, fullDark);
+        std::cout << "    sub level in bright / dark half: 0% " << steadyBright << " / " << steadyDark
+                  << ", 50% " << halfBright << " / " << halfDark << ", 100% " << fullBright << " / " << fullDark << std::endl;
+
+        check (std::abs (steadyBright - steadyDark) < 0.02f * steadyBright, "at 0% the sub ignores the picture");
+        check (fullBright > 0.9f * steadyBright && fullDark < 0.01f * fullBright, "at 100% it plays in the bright part and is silent in the dark part");
+        check (std::abs (halfDark - 0.5f * steadyDark) < 0.05f * steadyDark && halfBright > 0.9f * steadyBright,
+               "at 50% the dark part is half as loud");
+
+        // Reverse flips it, because the head reaches the dark half first.
+        setParam (plugin, "reverse", 1.0f);
+        float reversedFirst, reversedSecond;
+        halves (reversedFirst, reversedSecond);
+        check (reversedSecond > 0.9f * steadyBright && reversedFirst < 0.01f * reversedSecond, "follows the scan head when reversed");
+        setParam (plugin, "reverse", 0.0f);
+
+        // A patch saved by Photo Freq 2 opens here.
+        juce::ValueTree older ("PhotoFreq2");
+        older.copyPropertiesAndChildrenFrom (plugin.apvts.copyState(), nullptr);
+
+        for (auto child : older)
+            if (child.getProperty ("id").toString() == "cutoff")
+                child.setProperty ("value", 1234.0f, nullptr);
+
+        juce::MemoryOutputStream olderData;
+        older.writeToStream (olderData);
+        const auto olderFile = tempDir.getChildFile (juce::String ("from version 2") + PluginConfig::patchExtension);
+        olderFile.replaceWithData (olderData.getData(), olderData.getDataSize());
+        check (plugin.loadPatch (olderFile) && std::abs (plugin.apvts.getRawParameterValue ("cutoff")->load() - 1234.0f) < 1.0f,
+               "opens patches saved by Photo Freq 2");
+
+        setParam (plugin, "cutoff", 20000.0f);
+        setParam (plugin, "subFollow", 0.0f);
+        setParam (plugin, "subOn", 0.0f);
+        setParam (plugin, "subLevel", 0.5f);
+        setParam (plugin, "oscOn", 1.0f);
+        setParam (plugin, "loop", (float) EngineParams::loop);
+    }
+   #endif
+
     //==========================================================================
     std::cout << "Stress" << std::endl;
     {
