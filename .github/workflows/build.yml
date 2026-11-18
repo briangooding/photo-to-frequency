@@ -43,51 +43,41 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
 
       - name: Build
-        run: cmake --build build --config Release --parallel 4
+        # Only the newest plugin is built and shipped; the older ones stay in the
+        # sources but aren't part of the download.
+        run: cmake --build build --config Release --parallel 4 --target PhotoFreq2_VST3 PhotoFreq2_Standalone PhotoFreq2RenderTest PhotoToFrequencyHostCheck $([ "$RUNNER_OS" = "macOS" ] && echo PhotoFreq2_AU)
 
       - name: Test
         run: |
           run() { if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "$@"; else "$@"; fi; }
-          run build/PhotoToFrequencyRenderTest_artefacts/Release/PhotoToFrequencyRenderTest
-          run build/PhotoToFrequencySplitRenderTest_artefacts/Release/PhotoToFrequencySplitRenderTest
-          run build/PhotoFreqRenderTest_artefacts/Release/PhotoFreqRenderTest
           run build/PhotoFreq2RenderTest_artefacts/Release/PhotoFreq2RenderTest
-          run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
-            "build/PhotoToFrequency_artefacts/Release/VST3/Photo To Frequency.vst3"
-          run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
-            "build/PhotoToFrequencySplit_artefacts/Release/VST3/Photo To Frequency Split.vst3"
-          run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
-            "build/PhotoFreq_artefacts/Release/VST3/Photo Freq.vst3"
           run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
             "build/PhotoFreq2_artefacts/Release/VST3/Photo Freq 2.vst3"
 
       - name: Package
         run: |
-          # All the plugins go into one download per system.
           mkdir dist stage
-          for plugin in PhotoToFrequency PhotoToFrequencySplit PhotoFreq PhotoFreq2; do
-            out="build/${plugin}_artefacts/Release"
-            cp -R "$out"/VST3/*.vst3 stage/
-            if [ "$RUNNER_OS" = "macOS" ]; then
-              cp -R "$out"/AU/*.component "$out"/Standalone/*.app stage/
-            elif [ "$RUNNER_OS" = "Windows" ]; then
-              cp "$out"/Standalone/*.exe stage/
-            else
-              cp "$out"/Standalone/* stage/
-            fi
-          done
+          out="build/PhotoFreq2_artefacts/Release"
+          cp -R "$out"/VST3/*.vst3 stage/
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cp -R "$out"/AU/*.component "$out"/Standalone/*.app stage/
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            cp "$out"/Standalone/*.exe stage/
+          else
+            cp "$out"/Standalone/* stage/
+          fi
           ls stage
           if [ "$RUNNER_OS" = "macOS" ]; then
             # ditto keeps the bundle structure and code signature intact
-            ditto -c -k stage dist/PhotoToFrequency-macOS.zip
+            ditto -c -k stage dist/PhotoFreq2-macOS.zip
           elif [ "$RUNNER_OS" = "Windows" ]; then
-            (cd stage && 7z a ../dist/PhotoToFrequency-Windows.zip .)
+            (cd stage && 7z a ../dist/PhotoFreq2-Windows.zip .)
           else
-            tar czf dist/PhotoToFrequency-Linux.tar.gz -C stage .
+            tar czf dist/PhotoFreq2-Linux.tar.gz -C stage .
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PhotoToFrequency-${{ matrix.name }}
+          name: PhotoFreq2-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error

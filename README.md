@@ -113,11 +113,11 @@ everything Photo Freq has and adds:
 
 ## Getting the plugin
 
-Every push builds Windows, macOS (universal) and Linux versions: open the
-latest run under the repository's **Actions** tab and download the artifact for
-your system. Each download contains all four plugins. Copy
-`Photo To Frequency.vst3`, `Photo To Frequency Split.vst3`, `Photo Freq.vst3`
-and `Photo Freq 2.vst3` (or just the ones you want) to:
+Every push builds Windows, macOS (universal) and Linux versions of the newest
+plugin, Photo Freq 2: open the latest run under the repository's **Actions**
+tab and download `PhotoFreq2-Windows`, `PhotoFreq2-macOS` or `PhotoFreq2-Linux`.
+(The older plugins are still in the sources and can be built locally, but
+aren't part of the download.) Copy `Photo Freq 2.vst3` to:
 
 | System | VST3 folder |
 | --- | --- |
@@ -128,9 +128,9 @@ and `Photo Freq 2.vst3` (or just the ones you want) to:
 The builds are not signed with a developer certificate. On macOS, clear the
 download quarantine once before rescanning in your DAW:
 
-    xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Photo*.vst3
+    xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"Photo Freq 2.vst3"
 
-Standalone apps are included for trying them without a DAW.
+A standalone app is included for trying it without a DAW.
 
 ## Building
 

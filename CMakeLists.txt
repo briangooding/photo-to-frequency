@@ -95,5 +95,5 @@ if(PTF_BUILD_TESTS)
     target_link_libraries(PhotoToFrequencyHostCheck PRIVATE
         juce::juce_audio_utils
         juce::juce_recommended_config_flags)
-    add_dependencies(PhotoToFrequencyHostCheck PhotoToFrequency_VST3 PhotoToFrequencySplit_VST3 PhotoFreq_VST3 PhotoFreq2_VST3)
+    add_dependencies(PhotoToFrequencyHostCheck PhotoFreq2_VST3)
 endif()
