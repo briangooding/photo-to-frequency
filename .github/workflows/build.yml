@@ -51,18 +51,21 @@ jobs:
           run build/PhotoToFrequencyRenderTest_artefacts/Release/PhotoToFrequencyRenderTest
           run build/PhotoToFrequencySplitRenderTest_artefacts/Release/PhotoToFrequencySplitRenderTest
           run build/PhotoFreqRenderTest_artefacts/Release/PhotoFreqRenderTest
+          run build/PhotoFreq2RenderTest_artefacts/Release/PhotoFreq2RenderTest
           run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
             "build/PhotoToFrequency_artefacts/Release/VST3/Photo To Frequency.vst3"
           run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
             "build/PhotoToFrequencySplit_artefacts/Release/VST3/Photo To Frequency Split.vst3"
           run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
             "build/PhotoFreq_artefacts/Release/VST3/Photo Freq.vst3"
+          run build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck \
+            "build/PhotoFreq2_artefacts/Release/VST3/Photo Freq 2.vst3"
 
       - name: Package
         run: |
           # All the plugins go into one download per system.
           mkdir dist stage
-          for plugin in PhotoToFrequency PhotoToFrequencySplit PhotoFreq; do
+          for plugin in PhotoToFrequency PhotoToFrequencySplit PhotoFreq PhotoFreq2; do
             out="build/${plugin}_artefacts/Release"
             cp -R "$out"/VST3/*.vst3 stage/
             if [ "$RUNNER_OS" = "macOS" ]; then

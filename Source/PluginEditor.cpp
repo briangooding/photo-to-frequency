@@ -29,6 +29,11 @@ namespace
         return juce::File (path).hasFileExtension ("jpg;jpeg;jpe;png;gif");
     }
 
+    bool isPatchFile (const juce::String& path)
+    {
+        return PluginConfig::isFreq2 && juce::File (path).hasFileExtension (PluginConfig::patchExtension);
+    }
+
     juce::Font uiFont (float height, bool bold = false)
     {
         return juce::Font (juce::FontOptions (height, bold ? juce::Font::bold : juce::Font::plain));
@@ -38,6 +43,20 @@ namespace
 //==============================================================================
 juce::String PhotoToFrequencyEditor::tooltipFor (const juce::String& id)
 {
+    // Photo Freq 2 changes or adds these; everything else is shared.
+    static const std::pair<const char*, const char*> freq2Tips[] =
+    {
+        { "width",           "Stereo Width: how far apart in the speakers the partials are spread. 0% is mono; 100% uses the full width. Stereo Source decides which side each partial goes to." },
+        { "stereoSource",    "Stereo Source: what places each partial left or right. Colour: red parts of the picture lean left and blue parts lean right, so a black-and-white or single-colour picture stays in the centre. Alternate: neighbouring rows go to opposite sides, giving a wide sound from any picture. Pitch: low rows on the left rising to high rows on the right." },
+        { "reverse",         "Reverse: scans the picture from right to left instead of left to right. Works with every Scan Mode; in Ping-Pong the first pass goes right to left." },
+        { "filterEnvAmount", "Env Amount: how far the filter envelope moves the cutoff. +100% sweeps it up across the whole audible range (10 octaves), +50% about 5 octaves, +10% about one octave. Negative amounts sweep it down instead; 0 leaves the cutoff where it is." },
+    };
+
+    if (PluginConfig::isFreq2)
+        for (auto& tip : freq2Tips)
+            if (id == tip.first)
+                return tip.second;
+
     static const std::pair<const char*, const char*> tips[] =
     {
         { "scan",            "Scan Time: how long the scan head takes to cross the selected part of the picture. Short times turn the picture into a rhythm or a texture; long times into a slow evolving tone." },
@@ -82,7 +101,11 @@ juce::String PhotoToFrequencyEditor::tooltipFor (const juce::String& id)
 //==============================================================================
 PictureView::PictureView (PhotoToFrequencyProcessor& p) : processor (p)
 {
-    if (PluginConfig::isFreq)
+    if (PluginConfig::isFreq2)
+        setTooltip ("The picture. Left to right is time (right to left with Reverse), bottom to top is pitch and brightness is loudness. "
+                    "Drag a box to choose the part that plays: drag inside it to move it, an edge or corner to resize it, "
+                    "outside it to draw a new one, and double-click to select everything. The box is saved in patches.");
+    else if (PluginConfig::isFreq)
         setTooltip ("The picture. Left to right is time, bottom to top is pitch, brightness is loudness, and colour is left/right position. "
                     "Drag a box to choose the part that plays: drag inside it to move it, an edge or corner to resize it, "
                     "outside it to draw a new one, and double-click to select everything.");
@@ -119,11 +142,13 @@ void PictureView::refresh()
 {
     const float newPosition = processor.getScanPosition();
     const auto newRegion = readRegion();
+    const bool newReversed = PluginConfig::isFreq2 && processor.apvts.getRawParameterValue ("reverse")->load() > 0.5f;
 
-    if (! juce::approximatelyEqual (newPosition, scanPosition) || ! (newRegion == shownRegion))
+    if (! juce::approximatelyEqual (newPosition, scanPosition) || ! (newRegion == shownRegion) || newReversed != reversed)
     {
         scanPosition = newPosition;
         shownRegion = newRegion;
+        reversed = newReversed;
         repaint();
     }
 }
@@ -327,7 +352,8 @@ void PictureView::paint (juce::Graphics& g)
         g.drawText ("high", textArea, juce::Justification::topLeft);
         g.drawText ("low", textArea, juce::Justification::bottomLeft);
         // Photo Freq explains the box in its tooltip instead, and its panel can be narrow.
-        g.drawText (PluginConfig::isSplit && ! PluginConfig::isFreq ? "drag to choose the part that plays - double-click for all" : "time >",
+        g.drawText (PluginConfig::isSplit && ! PluginConfig::isFreq ? "drag to choose the part that plays - double-click for all"
+                                                                    : reversed ? "< time" : "time >",
                     textArea, juce::Justification::bottomRight);
     }
 
@@ -411,6 +437,21 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
         playButton.setTooltip ("Play: holds a C3 so you can hear the picture without a keyboard. Click again to stop.");
         invertButton.setTooltip (tooltipFor ("invert"));
     }
+
+    if (PluginConfig::isFreq2)
+    {
+        addAndMakeVisible (reverseButton);
+        reverseButton.setTooltip (tooltipFor ("reverse"));
+        reverseAttachment = std::make_unique<APVTS::ButtonAttachment> (processor.apvts, "reverse", reverseButton);
+
+        addAndMakeVisible (savePatchButton);
+        savePatchButton.setTooltip ("Save Patch: saves every setting, the picture and the part of it you selected to a patch file, so you can come back to this sound in any project.");
+        savePatchButton.onClick = [this] { chooseSavePatch(); };
+
+        addAndMakeVisible (loadPatchButton);
+        loadPatchButton.setTooltip ("Load Patch: opens a saved patch, bringing back its picture, selected part and settings. You can also drag a .pfpatch file onto the picture.");
+        loadPatchButton.onClick = [this] { chooseLoadPatch(); };
+    }
     playButton.setToggleState (processor.isPreviewHeld(), juce::dontSendNotification);
     playButton.onClick = [this]
     {
@@ -426,11 +467,15 @@ PhotoToFrequencyEditor::PhotoToFrequencyEditor (PhotoToFrequencyProcessor& p)
     if (PluginConfig::isSplit)
         addChoice ("filterType", "Filter Type");
 
+    if (PluginConfig::isFreq2)
+        addChoice ("stereoSource", "Stereo Source");
+
     addAndMakeVisible (invertButton);
     invertAttachment = std::make_unique<APVTS::ButtonAttachment> (processor.apvts, "invert", invertButton);
 
     mainRow = { addKnob ("scan", "Scan Time"), addKnob ("range", "Range"), addKnob ("contrast", "Contrast"),
-                addKnob ("threshold", "Threshold"), addKnob ("tilt", "Tilt"), addKnob ("width", "Colour Width") };
+                addKnob ("threshold", "Threshold"), addKnob ("tilt", "Tilt"),
+                addKnob ("width", PluginConfig::isFreq2 ? "Stereo Width" : "Colour Width") };
 
     if (PluginConfig::isSplit)
     {
@@ -593,15 +638,20 @@ void PhotoToFrequencyEditor::paint (juce::Graphics& g)
     g.setColour (textColour);
     g.setFont (uiFont (20.0f, true));
     g.drawText (PluginConfig::displayName,
-                header.removeFromLeft (PluginConfig::isFreq ? 130 : PluginConfig::isSplit ? 260 : 210),
+                header.removeFromLeft (PluginConfig::isFreq2 ? 150 : PluginConfig::isFreq ? 130 : PluginConfig::isSplit ? 260 : 210),
                 juce::Justification::centredLeft);
 
     g.setFont (uiFont (13.0f));
     g.setColour (statusMessage.isNotEmpty() ? accent : dimText);
-    const auto info = statusMessage.isNotEmpty() ? statusMessage
-                    : imageName.isNotEmpty()     ? imageName
-                                                 : juce::String ("Built-in picture - drop a JPG here or use Load Image");
-    g.drawText (info, header.withTrimmedRight (PluginConfig::isFreq ? 350 : 240).reduced (8, 0), juce::Justification::centredLeft);
+    auto info = statusMessage.isNotEmpty() ? statusMessage
+              : imageName.isNotEmpty()     ? imageName
+                                           : juce::String ("Built-in picture - drop a JPG here or use Load Image");
+
+    if (statusMessage.isEmpty() && patchName.isNotEmpty())
+        info = "Patch: " + patchName + "   |   " + (imageName.isNotEmpty() ? imageName : juce::String ("built-in picture"));
+
+    g.drawText (info, header.withTrimmedRight (PluginConfig::isFreq2 ? 600 : PluginConfig::isFreq ? 350 : 240).reduced (8, 0),
+                juce::Justification::centredLeft, true);
 
     // Controls panel
     const auto controls = getLocalBounds().reduced (margin).removeFromBottom (getControlsHeight());
@@ -635,6 +685,14 @@ void PhotoToFrequencyEditor::resized()
 
     if (PluginConfig::isFreq)
     {
+        if (PluginConfig::isFreq2)
+        {
+            header.removeFromRight (12);
+            savePatchButton.setBounds (header.removeFromRight (112));
+            header.removeFromRight (8);
+            loadPatchButton.setBounds (header.removeFromRight (112));
+        }
+
         header.removeFromRight (12);
         tooltipsButton.setBounds (header.removeFromRight (96));
     }
@@ -658,7 +716,7 @@ void PhotoToFrequencyEditor::resized()
 
     // Choices
     auto topRow = controls.removeFromTop (choiceRowHeight);
-    const int toggleSpace = PluginConfig::isFreq ? 210 : 110;
+    const int toggleSpace = PluginConfig::isFreq2 ? 310 : PluginConfig::isFreq ? 210 : 110;
     const int choiceWidth = juce::jmin (190, (topRow.getWidth() - toggleSpace) / juce::jmax (1, choices.size()));
 
     for (auto* choice : choices)
@@ -669,6 +727,9 @@ void PhotoToFrequencyEditor::resized()
     }
 
     invertButton.setBounds (topRow.removeFromLeft (100).withTrimmedTop (18).withHeight (26));
+
+    if (PluginConfig::isFreq2)
+        reverseButton.setBounds (topRow.removeFromLeft (100).withTrimmedTop (18).withHeight (26));
 
     if (PluginConfig::isFreq)
         oscButton.setBounds (topRow.removeFromLeft (100).withTrimmedTop (18).withHeight (26));
@@ -737,6 +798,7 @@ void PhotoToFrequencyEditor::refreshImage()
 {
     picture.setImage (processor.getPreviewImage());
     imageName = processor.getImageName();
+    patchName = PluginConfig::isFreq2 ? processor.getPatchName() : juce::String();
     fitWindowToImage();
     repaint();
 }
@@ -771,10 +833,70 @@ void PhotoToFrequencyEditor::loadFile (const juce::File& file)
     repaint();
 }
 
+juce::File PhotoToFrequencyEditor::getPatchFolder()
+{
+    auto folder = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Photo Freq 2 Patches");
+    folder.createDirectory();
+    return folder;
+}
+
+void PhotoToFrequencyEditor::chooseSavePatch()
+{
+    auto suggested = patchName.isNotEmpty() ? patchName
+                   : imageName.isNotEmpty() ? juce::File::createLegalFileName (juce::File (imageName).getFileNameWithoutExtension())
+                                            : juce::String ("New Patch");
+
+    fileChooser = std::make_unique<juce::FileChooser> ("Save patch",
+                                                       getPatchFolder().getChildFile (suggested + PluginConfig::patchExtension),
+                                                       juce::String ("*") + PluginConfig::patchExtension);
+
+    const juce::Component::SafePointer<PhotoToFrequencyEditor> safeThis (this);
+
+    fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [safeThis] (const juce::FileChooser& chooser)
+                              {
+                                  auto file = chooser.getResult();
+
+                                  if (safeThis == nullptr || file == juce::File())
+                                      return;
+
+                                  file = file.withFileExtension (PluginConfig::patchExtension);
+                                  safeThis->statusMessage = safeThis->processor.savePatch (file)
+                                                              ? juce::String()
+                                                              : "Couldn't save the patch to " + file.getFullPathName();
+                                  safeThis->refreshImage();
+                              });
+}
+
+void PhotoToFrequencyEditor::chooseLoadPatch()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Load patch", getPatchFolder(),
+                                                       juce::String ("*") + PluginConfig::patchExtension);
+
+    const juce::Component::SafePointer<PhotoToFrequencyEditor> safeThis (this);
+
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [safeThis] (const juce::FileChooser& chooser)
+                              {
+                                  const auto file = chooser.getResult();
+
+                                  if (safeThis != nullptr && file != juce::File())
+                                      safeThis->loadPatchFile (file);
+                              });
+}
+
+void PhotoToFrequencyEditor::loadPatchFile (const juce::File& file)
+{
+    statusMessage = processor.loadPatch (file) ? juce::String()
+                                               : "Couldn't read " + file.getFileName() + " as a Photo Freq 2 patch";
+    refreshImage();
+}
+
 bool PhotoToFrequencyEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (auto& f : files)
-        if (isImageFile (f))
+        if (isImageFile (f) || isPatchFile (f))
             return true;
 
     return false;
@@ -796,6 +918,12 @@ void PhotoToFrequencyEditor::filesDropped (const juce::StringArray& files, int, 
 
     for (auto& f : files)
     {
+        if (isPatchFile (f))
+        {
+            loadPatchFile (juce::File (f));
+            return;
+        }
+
         if (isImageFile (f))
         {
             loadFile (juce::File (f));

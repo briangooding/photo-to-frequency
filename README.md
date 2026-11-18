@@ -83,13 +83,41 @@ everything Split has and adds:
   the loaded picture instead of stretching it, and the window adjusts its
   height to suit when a picture is loaded. Resizing the window keeps the shape.
 
+## Photo Freq 2
+
+A fourth plugin, built on Photo Freq and installed alongside the others. It has
+everything Photo Freq has and adds:
+
+- **Patches.** **Save Patch...** writes everything needed to bring a sound
+  back to a `.pfpatch` file: every setting, the picture itself (stored
+  losslessly) and the part of the picture you selected. **Load Patch...**
+  opens one, or drag a `.pfpatch` file onto the picture. Patches go in a
+  `Photo Freq 2 Patches` folder in your Documents folder by default. The
+  patch name shows in the header and is remembered with the project. Loading
+  a patch leaves the Tooltips switch as it is.
+- **Reverse.** Scans the picture from right to left instead. It works with
+  every Scan Mode; in Ping-Pong the first pass goes right to left. The
+  picture's time label flips to match.
+- **Stereo Width and Stereo Source** replace Colour Width. Colour Width only
+  did anything if the picture had red or blue in it, so black-and-white or
+  single-colour pictures stayed mono. Now **Stereo Width** (0-100%) sets how
+  wide the sound is, and **Stereo Source** chooses what places each partial:
+  - *Colour*: red leans left, blue leans right (as before).
+  - *Alternate*: neighbouring rows go to opposite sides, so any picture
+    sounds wide.
+  - *Pitch*: low rows on the left, rising to high rows on the right.
+- **Env Amount in percent.** The filter envelope amount goes from -100% to
+  +100% instead of -8 to +8 octaves. +100% sweeps the cutoff across the whole
+  audible range (10 octaves, 20 Hz to 20 kHz), +50% about 5 octaves, and
+  negative amounts sweep downwards.
+
 ## Getting the plugin
 
 Every push builds Windows, macOS (universal) and Linux versions: open the
 latest run under the repository's **Actions** tab and download the artifact for
-your system. Each download contains all three plugins. Copy
-`Photo To Frequency.vst3`, `Photo To Frequency Split.vst3` and `Photo Freq.vst3`
-(or just the ones you want) to:
+your system. Each download contains all four plugins. Copy
+`Photo To Frequency.vst3`, `Photo To Frequency Split.vst3`, `Photo Freq.vst3`
+and `Photo Freq 2.vst3` (or just the ones you want) to:
 
 | System | VST3 folder |
 | --- | --- |
@@ -113,8 +141,9 @@ JUCE 8 is downloaded during configuration.
     cmake --build build --config Release
 
 The plugins end up in `build/PhotoToFrequency_artefacts/Release/VST3`,
-`build/PhotoToFrequencySplit_artefacts/Release/VST3` and
-`build/PhotoFreq_artefacts/Release/VST3`.
+`build/PhotoToFrequencySplit_artefacts/Release/VST3`,
+`build/PhotoFreq_artefacts/Release/VST3` and
+`build/PhotoFreq2_artefacts/Release/VST3`.
 
 Linux also needs the development packages for ALSA, X11 (Xext, Xrandr, Xinerama,
 Xcursor, Xcomposite), FreeType and Fontconfig.
@@ -126,17 +155,19 @@ Headless checks are built alongside the plugins:
     build/PhotoToFrequencyRenderTest_artefacts/Release/PhotoToFrequencyRenderTest [photo.jpg] [output-dir]
     build/PhotoToFrequencySplitRenderTest_artefacts/Release/PhotoToFrequencySplitRenderTest [photo.jpg] [output-dir]
     build/PhotoFreqRenderTest_artefacts/Release/PhotoFreqRenderTest [photo.jpg] [output-dir]
+    build/PhotoFreq2RenderTest_artefacts/Release/PhotoFreq2RenderTest [photo.jpg] [output-dir]
     build/PhotoToFrequencyHostCheck_artefacts/Release/PhotoToFrequencyHostCheck "build/PhotoToFrequency_artefacts/Release/VST3/Photo To Frequency.vst3"
 
 The render tests exercise image analysis, the synth, EXIF handling and state
 saving (for Split also the region, envelopes and filter; for Photo Freq also
-the sub oscillator, panel shape and tooltips); given a photo and an
+the sub oscillator, panel shape and tooltips; for Photo Freq 2 also reverse
+scanning, the stereo sources, Env Amount and patches); given a photo and an
 output directory they also write `render.wav` and a screenshot of the editor.
 The host check loads a built VST3 through a VST3 host and plays a note.
 
 ## Layout
 
-- `Source/PluginConfig.h` - which of the three plugins is being built
+- `Source/PluginConfig.h` - which of the four plugins is being built
 - `Source/ImageSpectrum.*` - loads the picture and reduces it to brightness/pan grids
 - `Source/SynthEngine.*` - the additive synth
 - `Source/PluginProcessor.*` - parameters, MIDI, state

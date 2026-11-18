@@ -6,6 +6,7 @@ namespace
     const juce::Identifier imageDataProperty ("imageData");
     const juce::Identifier imageNameProperty ("imageName");
     const juce::Identifier tooltipsProperty ("showTooltips");
+    const juce::Identifier patchNameProperty ("patchName");
 }
 
 bool PhotoToFrequencyProcessor::areTooltipsEnabled() const
@@ -51,8 +52,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhotoToFrequencyProcessor::c
     layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "invert", 1 }, "Invert", false));
     layout.add (std::make_unique<FloatParam> (juce::ParameterID { "tilt", 1 }, "Tilt",
                                               Range (0.0f, 2.0f, 0.01f), 0.5f));
-    layout.add (std::make_unique<FloatParam> (juce::ParameterID { "width", 1 }, "Colour Width",
-                                              Range (0.0f, 1.0f, 0.01f), 1.0f));
+    if (PluginConfig::isFreq2)
+    {
+        // Named for what it does: it sets how wide the sound is, whatever drives the panning.
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "width", 1 }, "Stereo Width",
+                                                  Range (0.0f, 100.0f, 1.0f), 100.0f, Attributes().withLabel ("%")));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { "stereoSource", 1 }, "Stereo Source",
+                                                                  juce::StringArray { "Colour", "Alternate", "Pitch" }, 0));
+        layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "reverse", 1 }, "Reverse", false));
+    }
+    else
+    {
+        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "width", 1 }, "Colour Width",
+                                                  Range (0.0f, 1.0f, 0.01f), 1.0f));
+    }
     layout.add (std::make_unique<FloatParam> (juce::ParameterID { "attack", 1 }, "Attack",
                                               skewed (0.001f, 5.0f, 0.001f, 0.2f), 0.02f, Attributes().withLabel ("s")));
     layout.add (std::make_unique<FloatParam> (juce::ParameterID { "release", 1 }, "Release",
@@ -81,8 +94,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout PhotoToFrequencyProcessor::c
                                                   skewed (20.0f, 20000.0f, 1.0f, 1000.0f), 20000.0f, Attributes().withLabel ("Hz")));
         layout.add (std::make_unique<FloatParam> (juce::ParameterID { "resonance", 1 }, "Resonance",
                                                   Range (0.0f, 1.0f, 0.01f), 0.0f));
-        layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterEnvAmount", 1 }, "Filter Env Amount",
-                                                  Range (-8.0f, 8.0f, 0.01f), 0.0f, Attributes().withLabel ("oct")));
+        if (PluginConfig::isFreq2)
+            layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterEnvAmount", 1 }, "Filter Env Amount",
+                                                      Range (-100.0f, 100.0f, 1.0f), 0.0f,
+                                                      Attributes().withLabel ("%")
+                                                                  .withStringFromValueFunction ([] (float v, int)
+                                                                  {
+                                                                      const int percent = juce::roundToInt (v);
+                                                                      return (percent > 0 ? "+" : "") + juce::String (percent);
+                                                                  })));
+        else
+            layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterEnvAmount", 1 }, "Filter Env Amount",
+                                                      Range (-8.0f, 8.0f, 0.01f), 0.0f, Attributes().withLabel ("oct")));
         layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterAttack", 1 }, "Filter Attack",
                                                   skewed (0.001f, 5.0f, 0.001f, 0.2f), 0.01f, Attributes().withLabel ("s")));
         layout.add (std::make_unique<FloatParam> (juce::ParameterID { "filterDecay", 1 }, "Filter Decay",
@@ -157,6 +180,12 @@ PhotoToFrequencyProcessor::PhotoToFrequencyProcessor()
         params.subFine   = apvts.getRawParameterValue ("subFine");
         params.subDrive  = apvts.getRawParameterValue ("subDrive");
         params.subLevel  = apvts.getRawParameterValue ("subLevel");
+    }
+
+    if (PluginConfig::isFreq2)
+    {
+        params.reverse      = apvts.getRawParameterValue ("reverse");
+        params.stereoSource = apvts.getRawParameterValue ("stereoSource");
     }
 
     setImage (ImageSpectrum::createDefaultImage(), {});
@@ -269,6 +298,14 @@ EngineParams PhotoToFrequencyProcessor::readParams() const
         p.subLevel   = params.subLevel->load();
     }
 
+    if (PluginConfig::isFreq2)
+    {
+        p.width           = juce::jlimit (0.0f, 1.0f, p.width / 100.0f);
+        p.filterEnvAmount = p.filterEnvAmount / 100.0f * envAmountFullOctaves;
+        p.reverse         = params.reverse->load() > 0.5f;
+        p.stereoSource    = juce::roundToInt (params.stereoSource->load());
+    }
+
     return p;
 }
 
@@ -348,37 +385,41 @@ void PhotoToFrequencyProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 }
 
 //==============================================================================
-void PhotoToFrequencyProcessor::getStateInformation (juce::MemoryBlock& destData)
+juce::ValueTree PhotoToFrequencyProcessor::createStateTree (bool forPatch)
 {
     auto state = apvts.copyState();
 
     const auto preview = getPreviewImage();
     const auto name = getImageName();
 
-    // The picture travels with the project, so it still plays if the file moves.
+    // The picture travels with the project or patch, so it still plays if the file moves.
     if (preview.isValid() && name.isNotEmpty())
     {
         juce::MemoryOutputStream imageStream;
+        juce::PNGImageFormat png;
         juce::JPEGImageFormat jpeg;
         jpeg.setQuality (0.9f);
 
-        if (jpeg.writeImageToStream (preview, imageStream))
+        auto& format = forPatch ? static_cast<juce::ImageFileFormat&> (png) : static_cast<juce::ImageFileFormat&> (jpeg);
+
+        if (format.writeImageToStream (preview, imageStream))
         {
             state.setProperty (imageDataProperty, juce::var (imageStream.getData(), imageStream.getDataSize()), nullptr);
             state.setProperty (imageNameProperty, name, nullptr);
         }
     }
 
-    juce::MemoryOutputStream out (destData, false);
-    state.writeToStream (out);
+    // The Tooltips switch is a preference, not part of the sound.
+    if (forPatch)
+        state.removeProperty (tooltipsProperty, nullptr);
+
+    return state;
 }
 
-void PhotoToFrequencyProcessor::setStateInformation (const void* data, int sizeInBytes)
+bool PhotoToFrequencyProcessor::applyStateTree (juce::ValueTree state)
 {
-    auto state = juce::ValueTree::readFromData (data, (size_t) sizeInBytes);
-
     if (! state.isValid() || ! state.hasType (apvts.state.getType()))
-        return;
+        return false;
 
     juce::Image image;
     const auto name = state.getProperty (imageNameProperty).toString();
@@ -394,6 +435,64 @@ void PhotoToFrequencyProcessor::setStateInformation (const void* data, int sizeI
         setImage (image, name);
     else
         setImage (ImageSpectrum::createDefaultImage(), {});
+
+    return true;
+}
+
+void PhotoToFrequencyProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    juce::MemoryOutputStream out (destData, false);
+    createStateTree (false).writeToStream (out);
+}
+
+void PhotoToFrequencyProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    applyStateTree (juce::ValueTree::readFromData (data, (size_t) sizeInBytes));
+}
+
+//==============================================================================
+juce::String PhotoToFrequencyProcessor::getPatchName() const
+{
+    return apvts.state.getProperty (patchNameProperty).toString();
+}
+
+bool PhotoToFrequencyProcessor::savePatch (const juce::File& file)
+{
+    const auto patchName = file.getFileNameWithoutExtension();
+    const auto previousName = apvts.state.getProperty (patchNameProperty);
+    apvts.state.setProperty (patchNameProperty, patchName, nullptr);
+
+    juce::MemoryOutputStream data;
+    createStateTree (true).writeToStream (data);
+
+    // Written to a temporary file first, so a failed save never damages an existing patch.
+    if (! file.getParentDirectory().createDirectory() || ! file.replaceWithData (data.getData(), data.getDataSize()))
+    {
+        if (previousName.isVoid())  apvts.state.removeProperty (patchNameProperty, nullptr);
+        else                        apvts.state.setProperty (patchNameProperty, previousName, nullptr);
+
+        return false;
+    }
+
+    sendChangeMessage();
+    return true;
+}
+
+bool PhotoToFrequencyProcessor::loadPatch (const juce::File& file)
+{
+    juce::MemoryBlock data;
+
+    if (! file.existsAsFile() || ! file.loadFileAsData (data) || data.isEmpty())
+        return false;
+
+    auto state = juce::ValueTree::readFromData (data.getData(), data.getSize());
+
+    if (! state.isValid() || ! state.hasType (apvts.state.getType()))
+        return false;
+
+    state.setProperty (tooltipsProperty, areTooltipsEnabled(), nullptr);
+    state.setProperty (patchNameProperty, file.getFileNameWithoutExtension(), nullptr);
+    return applyStateTree (state);
 }
 
 //==============================================================================

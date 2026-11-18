@@ -22,7 +22,14 @@ struct EngineParams
     float threshold    = 0.1f;
     bool  invert       = false;
     float tilt         = 0.5f;
-    float width        = 1.0f;
+    float width        = 1.0f;     // 0 (mono) .. 1 (full stereo)
+
+    // What places each partial in the stereo field, scaled by width.
+    enum StereoSource { stereoColour = 0, stereoAlternate, stereoPitch };
+    int   stereoSource = stereoColour;
+
+    // Scan the picture from right to left.
+    bool  reverse      = false;
 
     // Oscillator (amplitude) envelope
     float attack       = 0.02f;
@@ -160,8 +167,9 @@ private:
         uint64_t order = 0;
         float baseFrequency = 440.0f;
         float velocity = 1.0f;
-        double position = 0.0;
+        double position = 0.0;        // 0..1 through the scan, in time
         double direction = 1.0;
+        float scanPoint = 0.0f;       // where in the region the head is: 0 left .. 1 right
         Envelope ampEnvelope, filterEnvelope;
 
         // Cache key for the per-partial oscillator data.

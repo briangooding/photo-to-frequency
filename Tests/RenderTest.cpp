@@ -77,6 +77,30 @@ namespace
         param->setValueNotifyingHost (param->convertTo0to1 (realValue));
     }
 
+    /** Env Amount in the plugin's own unit: octaves, or percent in Photo Freq 2. */
+    float envAmount (float octaves)
+    {
+       #if PTF_VARIANT >= 3
+        return octaves / PhotoToFrequencyProcessor::envAmountFullOctaves * 100.0f;
+       #else
+        return octaves;
+       #endif
+    }
+
+    /** Correlation between the two channels: 1 is mono, 0 unrelated, -1 opposite. */
+    float channelCorrelation (const juce::AudioBuffer<float>& b, int start, int length)
+    {
+        double lr = 0, ll = 0, rr = 0;
+
+        for (int n = start; n < start + length; ++n)
+        {
+            const double l = b.getSample (0, n), r = b.getSample (1, n);
+            lr += l * r;  ll += l * l;  rr += r * r;
+        }
+
+        return (float) (lr / std::sqrt (juce::jmax (1.0e-20, ll * rr)));
+    }
+
     /** Wraps JPEG data in a minimal EXIF header carrying the given orientation. */
     juce::MemoryBlock withExifOrientation (const juce::MemoryBlock& jpeg, uint8_t orientation)
     {
@@ -347,7 +371,7 @@ int main (int argc, char* argv[])
         setParam (plugin, "filterType", (float) EngineParams::lowPass);
         setParam (plugin, "resonance", 0.0f);
         setParam (plugin, "cutoff", 100.0f);
-        setParam (plugin, "filterEnvAmount", 6.0f);
+        setParam (plugin, "filterEnvAmount", envAmount (6.0f));
         setParam (plugin, "filterAttack", 0.001f);
         setParam (plugin, "filterDecay", 1.0f);
         setParam (plugin, "filterSustain", 0.0f);
@@ -360,7 +384,7 @@ int main (int argc, char* argv[])
         check (bright > 3 * dark, "filter envelope sweeps the cutoff down while the note is held");
 
         // A slower decay here, so the filter is still nearly shut in the first 50 ms.
-        setParam (plugin, "filterEnvAmount", -6.0f);
+        setParam (plugin, "filterEnvAmount", envAmount (-6.0f));
         setParam (plugin, "cutoff", 6400.0f);
         setParam (plugin, "filterDecay", 2.0f);
         const auto sweptUp = render (plugin, { 36 }, 2.0, 0.1);
@@ -660,6 +684,276 @@ int main (int argc, char* argv[])
         }
 
         setParam (plugin, "subOn", 0.0f);
+    }
+   #endif
+
+   #if PTF_VARIANT >= 3
+    //==========================================================================
+    std::cout << "Freq 2: reverse scan" << std::endl;
+    {
+        constexpr int sr = 48000;
+
+        // Bright on the left half only, all the way up.
+        juce::Image halfLit (juce::Image::RGB, 400, 200, true);
+        {
+            juce::Graphics g (halfLit);
+            g.fillAll (juce::Colours::black);
+            g.setColour (juce::Colours::white);
+            g.fillRect (0, 0, 200, 200);
+        }
+        plugin.setImage (halfLit, "half");
+
+        setParam (plugin, "regionLeft", 0.0f);   setParam (plugin, "regionRight", 1.0f);
+        setParam (plugin, "regionBottom", 0.0f); setParam (plugin, "regionTop", 1.0f);
+        setParam (plugin, "loop", (float) EngineParams::oneShot);
+        setParam (plugin, "scan", 2.0f);
+        setParam (plugin, "attack", 0.005f);
+        setParam (plugin, "sustain", 1.0f);
+        setParam (plugin, "cutoff", 20000.0f);
+        setParam (plugin, "filterEnvAmount", 0.0f);
+
+        auto halves = [&] (float& first, float& second)
+        {
+            const auto audio = render (plugin, { 48 }, 2.0, 0.2);
+            first  = audio.getRMSLevel (0, sr / 5, sr / 2);
+            second = audio.getRMSLevel (0, sr + sr / 5, sr / 2);
+        };
+
+        float forwardFirst, forwardSecond, reverseFirst, reverseSecond;
+        check (plugin.apvts.getRawParameterValue ("reverse")->load() < 0.5f, "off by default");
+        halves (forwardFirst, forwardSecond);
+        setParam (plugin, "reverse", 1.0f);
+        halves (reverseFirst, reverseSecond);
+        std::cout << "    forward: first second " << forwardFirst << ", second " << forwardSecond
+                  << "   reversed: first " << reverseFirst << ", second " << reverseSecond << std::endl;
+        check (forwardFirst > 0.01f && forwardSecond < 0.1f * forwardFirst, "forward plays the left half first");
+        check (reverseSecond > 0.01f && reverseFirst < 0.1f * reverseSecond, "reversed plays the right half first");
+
+        render (plugin, { 48 }, 0.1, 0.0);
+        const float startPosition = plugin.getScanPosition();
+        std::cout << "    reversed scan head after 0.1 s: " << startPosition << std::endl;
+        check (startPosition > 0.9f && startPosition < 1.0f, "reversed scan head starts at the right and moves left");
+
+        // Within a selected part the reversed head stays inside it.
+        setParam (plugin, "regionLeft", 0.5f);
+        setParam (plugin, "regionRight", 0.75f);
+        render (plugin, { 48 }, 0.1, 0.0);
+        const float regionStart = plugin.getScanPosition();
+        check (regionStart > 0.72f && regionStart <= 0.75f, "reversed head starts at the right edge of the selected part");
+        setParam (plugin, "regionLeft", 0.0f);
+        setParam (plugin, "regionRight", 1.0f);
+
+        for (const auto mode : { EngineParams::loop, EngineParams::pingPong })
+        {
+            setParam (plugin, "loop", (float) mode);
+            setParam (plugin, "scan", 0.3f);
+            const auto s = measure (render (plugin, { 48, 55 }, 1.5, 0.2));
+            check (s.finite && s.rmsL > 0.005f, juce::String (mode == EngineParams::loop ? "loop" : "ping-pong") + " reversed sounds");
+        }
+
+        setParam (plugin, "reverse", 0.0f);
+        setParam (plugin, "loop", (float) EngineParams::loop);
+        setParam (plugin, "scan", 2.0f);
+    }
+
+    std::cout << "Freq 2: stereo" << std::endl;
+    {
+        constexpr int sr = 48000;
+
+        // A white picture has no colour, so the Colour source leaves it in the middle.
+        juce::Image white (juce::Image::RGB, 64, 64, true);
+        white.clear (white.getBounds(), juce::Colours::white);
+        plugin.setImage (white, "white");
+        setParam (plugin, "tuning", (float) EngineParams::freeLog);
+
+        auto* width = plugin.apvts.getParameter ("width");
+        check (width->getName (100) == "Stereo Width" && width->getLabel() == "%"
+                && std::abs (plugin.apvts.getRawParameterValue ("width")->load() - 100.0f) < 0.01f,
+               "Stereo Width is in percent, full by default");
+        check (juce::roundToInt (plugin.apvts.getRawParameterValue ("stereoSource")->load()) == EngineParams::stereoColour,
+               "Stereo Source is Colour by default");
+
+        auto correlation = [&] (int source, float widthPercent)
+        {
+            setParam (plugin, "stereoSource", (float) source);
+            setParam (plugin, "width", widthPercent);
+            return channelCorrelation (render (plugin, { 48 }, 1.0, 0.0), sr / 4, sr / 2);
+        };
+
+        const float colour = correlation (EngineParams::stereoColour, 100.0f);
+        const float alternate = correlation (EngineParams::stereoAlternate, 100.0f);
+        const float alternateMono = correlation (EngineParams::stereoAlternate, 0.0f);
+        const float pitch = correlation (EngineParams::stereoPitch, 100.0f);
+        std::cout << "    channel correlation of a white picture: colour " << colour << ", alternate " << alternate
+                  << " (at 0% " << alternateMono << "), pitch " << pitch << std::endl;
+        check (colour > 0.99f, "Colour source: a picture with no colour is centred");
+        check (alternate < 0.3f, "Alternate source: spreads any picture wide");
+        check (pitch < 0.7f, "Pitch source: spreads it too");
+        check (alternateMono > 0.999f, "Stereo Width 0% is mono");
+
+        // Pitch: a stripe at the bottom of the picture plays on the left, one at the top on the right.
+        auto stripeBalance = [&] (int y)
+        {
+            juce::Image stripe (juce::Image::RGB, 64, 64, true);
+            {
+                juce::Graphics g (stripe);
+                g.fillAll (juce::Colours::black);
+                g.setColour (juce::Colours::white);
+                g.fillRect (0, y, 64, 6);
+            }
+            plugin.setImage (stripe, "stripe");
+            const auto audio = render (plugin, { 48 }, 1.0, 0.0);
+            return audio.getRMSLevel (0, sr / 4, sr / 2) / juce::jmax (1.0e-6f, audio.getRMSLevel (1, sr / 4, sr / 2));
+        };
+
+        setParam (plugin, "stereoSource", (float) EngineParams::stereoPitch);
+        setParam (plugin, "width", 100.0f);
+        const float lowBalance = stripeBalance (56), highBalance = stripeBalance (2);
+        std::cout << "    pitch source, left/right level: bottom stripe " << lowBalance << ", top stripe " << highBalance << std::endl;
+        check (lowBalance > 4.0f && highBalance < 0.25f, "Pitch source: low rows on the left, high rows on the right");
+
+        setParam (plugin, "stereoSource", (float) EngineParams::stereoColour);
+        setParam (plugin, "tuning", (float) EngineParams::harmonic);
+    }
+
+    std::cout << "Freq 2: filter Env Amount in percent" << std::endl;
+    {
+        auto* amount = plugin.apvts.getParameter ("filterEnvAmount");
+        check (amount->getLabel() == "%"
+                && juce::exactlyEqual (amount->convertFrom0to1 (0.0f), -100.0f)
+                && juce::exactlyEqual (amount->convertFrom0to1 (1.0f), 100.0f),
+               "ranges from -100% to +100%");
+        check (amount->getText (amount->convertTo0to1 (50.0f), 10) == "+50"
+                && amount->getText (amount->convertTo0to1 (-25.0f), 10) == "-25"
+                && amount->getText (amount->convertTo0to1 (0.0f), 10) == "0",
+               "shows a sign, like +50 %");
+        check (juce::exactlyEqual (PhotoToFrequencyProcessor::envAmountFullOctaves, 10.0f), "100% is the whole audible range, 10 octaves");
+    }
+
+    std::cout << "Freq 2: patches" << std::endl;
+    {
+        // A picture with a little detail, so a lossy round trip would show.
+        juce::Image picture (juce::Image::RGB, 300, 150, true);
+        {
+            juce::Graphics g (picture);
+            g.fillAll (juce::Colour (0xff102030));
+            g.setColour (juce::Colour (0xffc04080));
+            g.fillRect (30, 20, 90, 40);
+            g.setColour (juce::Colour (0xff20e0a0));
+            g.fillEllipse (160.0f, 60.0f, 100.0f, 70.0f);
+        }
+        plugin.setImage (picture, "garden.jpg");
+
+        setParam (plugin, "regionLeft", 0.2f);   setParam (plugin, "regionRight", 0.7f);
+        setParam (plugin, "regionBottom", 0.1f); setParam (plugin, "regionTop", 0.8f);
+        setParam (plugin, "reverse", 1.0f);
+        setParam (plugin, "stereoSource", (float) EngineParams::stereoAlternate);
+        setParam (plugin, "width", 40.0f);
+        setParam (plugin, "filterEnvAmount", 35.0f);
+        setParam (plugin, "cutoff", 3000.0f);
+        setParam (plugin, "subOn", 1.0f);
+        plugin.setTooltipsEnabled (false);
+
+        const auto patchFile = tempDir.getChildFile ("Patches").getChildFile (juce::String ("Warm Garden") + PluginConfig::patchExtension);
+        patchFile.getParentDirectory().deleteRecursively();
+        check (plugin.savePatch (patchFile) && patchFile.existsAsFile(), "saves a patch file (and makes its folder)");
+        check (plugin.getPatchName() == "Warm Garden", "the patch takes the file's name");
+        std::cout << "    patch file: " << patchFile.getSize() << " bytes" << std::endl;
+
+        // Change everything, then bring it back.
+        juce::Image black (juce::Image::RGB, 64, 64, true);
+        plugin.setImage (black, "black");
+        setParam (plugin, "regionLeft", 0.0f);   setParam (plugin, "regionRight", 1.0f);
+        setParam (plugin, "regionBottom", 0.0f); setParam (plugin, "regionTop", 1.0f);
+        setParam (plugin, "reverse", 0.0f);
+        setParam (plugin, "stereoSource", (float) EngineParams::stereoColour);
+        setParam (plugin, "width", 100.0f);
+        setParam (plugin, "filterEnvAmount", 0.0f);
+        setParam (plugin, "cutoff", 20000.0f);
+        setParam (plugin, "subOn", 0.0f);
+        plugin.setTooltipsEnabled (true);
+
+        auto value = [&] (const char* id) { return plugin.apvts.getRawParameterValue (id)->load(); };
+
+        check (plugin.loadPatch (patchFile), "loads the patch");
+        check (plugin.getImageName() == "garden.jpg", "patch brings back the picture's name");
+
+        const auto restored = plugin.getPreviewImage();
+        bool samePixels = restored.getWidth() == 300 && restored.getHeight() == 150;
+
+        for (int y = 0; samePixels && y < 150; y += 7)
+            for (int x = 0; samePixels && x < 300; x += 7)
+                samePixels = restored.getPixelAt (x, y).getARGB() == picture.getPixelAt (x, y).getARGB();
+
+        check (samePixels, "patch brings back the picture itself, pixel for pixel");
+        check (std::abs (value ("regionLeft") - 0.2f) < 0.001f && std::abs (value ("regionRight") - 0.7f) < 0.001f
+                && std::abs (value ("regionBottom") - 0.1f) < 0.001f && std::abs (value ("regionTop") - 0.8f) < 0.001f,
+               "patch brings back the selected part of the picture");
+        check (value ("reverse") > 0.5f && juce::roundToInt (value ("stereoSource")) == EngineParams::stereoAlternate
+                && std::abs (value ("width") - 40.0f) < 0.01f && std::abs (value ("filterEnvAmount") - 35.0f) < 0.01f
+                && std::abs (value ("cutoff") - 3000.0f) < 1.0f && value ("subOn") > 0.5f,
+               "patch brings back the settings");
+        check (plugin.areTooltipsEnabled(), "loading a patch leaves the Tooltips switch alone");
+        check (plugin.getPatchName() == "Warm Garden", "the patch name shows after loading");
+        check (measure (render (plugin, { 48 }, 1.0, 0.2)).finite, "plays after loading a patch");
+
+        // The patch name is kept in the project too.
+        {
+            juce::MemoryBlock state;
+            plugin.getStateInformation (state);
+            std::unique_ptr<juce::AudioProcessor> otherBase (createPluginFilter());
+            auto& other = dynamic_cast<PhotoToFrequencyProcessor&> (*otherBase);
+            other.setStateInformation (state.getData(), (int) state.getSize());
+            check (other.getPatchName() == "Warm Garden", "the project remembers which patch was loaded");
+        }
+
+        // Files that aren't patches are refused and change nothing.
+        const auto junk = tempDir.getChildFile (juce::String ("junk") + PluginConfig::patchExtension);
+        junk.replaceWithText ("not a patch");
+        check (! plugin.loadPatch (junk) && plugin.getImageName() == "garden.jpg", "a file that isn't a patch is refused");
+        check (! plugin.loadPatch (tempDir.getChildFile ("missing.pfpatch")), "a missing patch is refused");
+
+        juce::ValueTree otherPlugin ("PhotoFreq");
+        juce::MemoryOutputStream otherData;
+        otherPlugin.writeToStream (otherData);
+        const auto otherFile = tempDir.getChildFile (juce::String ("other") + PluginConfig::patchExtension);
+        otherFile.replaceWithData (otherData.getData(), otherData.getDataSize());
+        check (! plugin.loadPatch (otherFile) && std::abs (value ("regionLeft") - 0.2f) < 0.001f,
+               "a state from another plugin is refused");
+
+        check (! plugin.savePatch (juce::File ("/dev/null/cannot/save.pfpatch")) && plugin.getPatchName() == "Warm Garden",
+               "a failed save is reported and keeps the old patch name");
+
+        // The editor has the patch buttons, the Reverse switch and the Stereo Source menu.
+        std::unique_ptr<juce::AudioProcessorEditor> editor (plugin.createEditor());
+        bool hasSave = false, hasLoad = false, hasReverse = false, hasStereoSource = false;
+
+        for (auto* child : editor->getChildren())
+        {
+            if (auto* button = dynamic_cast<juce::Button*> (child))
+            {
+                hasSave    = hasSave    || (button->getButtonText() == "Save Patch..." && button->isVisible());
+                hasLoad    = hasLoad    || (button->getButtonText() == "Load Patch..." && button->isVisible());
+                hasReverse = hasReverse || (button->getButtonText() == "Reverse" && button->getToggleState());
+            }
+
+            if (auto* box = dynamic_cast<juce::ComboBox*> (child))
+                hasStereoSource = hasStereoSource || box->getText() == "Alternate";
+        }
+
+        check (hasSave && hasLoad, "header has Save Patch and Load Patch buttons");
+        check (hasReverse, "Reverse switch shows the loaded setting");
+        check (hasStereoSource, "Stereo Source menu shows the loaded setting");
+
+        // Leave things neutral for the stress run.
+        setParam (plugin, "reverse", 0.0f);
+        setParam (plugin, "stereoSource", (float) EngineParams::stereoColour);
+        setParam (plugin, "width", 100.0f);
+        setParam (plugin, "filterEnvAmount", 0.0f);
+        setParam (plugin, "cutoff", 20000.0f);
+        setParam (plugin, "subOn", 0.0f);
+        setParam (plugin, "regionLeft", 0.0f);   setParam (plugin, "regionRight", 1.0f);
+        setParam (plugin, "regionBottom", 0.0f); setParam (plugin, "regionTop", 1.0f);
     }
    #endif
 

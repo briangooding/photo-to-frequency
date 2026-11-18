@@ -50,6 +50,7 @@ private:
     juce::Image image;
     float scanPosition = -1.0f;
     bool dragHighlight = false;
+    bool reversed = false;                 // Photo Freq 2: scanning right to left
 
     Region shownRegion, dragStartRegion;
     int dragEdges = noEdge;
@@ -119,6 +120,12 @@ private:
     /** Photo Freq: creates or removes the tooltip window to match the Tooltips switch. */
     void updateTooltipWindow();
 
+    /** Photo Freq 2: patch files. */
+    void chooseSavePatch();
+    void chooseLoadPatch();
+    void loadPatchFile (const juce::File&);
+    static juce::File getPatchFolder();
+
     static juce::String tooltipFor (const juce::String& paramId);
 
     PhotoToFrequencyProcessor& processor;
@@ -134,6 +141,10 @@ private:
     juce::ToggleButton subButton { "On" };
     std::unique_ptr<APVTS::ButtonAttachment> subAttachment;
     juce::ToggleButton tooltipsButton { "Tooltips" };
+    juce::ToggleButton reverseButton { "Reverse" };
+    std::unique_ptr<APVTS::ButtonAttachment> reverseAttachment;
+    juce::TextButton savePatchButton { "Save Patch..." };
+    juce::TextButton loadPatchButton { "Load Patch..." };
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;
     float imageAspect = 2.0f;   // width / height of the loaded picture
 
@@ -142,7 +153,7 @@ private:
     std::vector<Knob*> mainRow;
     std::vector<Group> groups;
 
-    juce::String imageName, statusMessage;
+    juce::String imageName, patchName, statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhotoToFrequencyEditor)

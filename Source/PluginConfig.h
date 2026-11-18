@@ -1,6 +1,6 @@
 #pragma once
 
-/** The same sources build three plugins, each one adding to the one before:
+/** The same sources build four plugins, each one adding to the one before:
 
     0  Photo To Frequency        plays the whole picture.
     1  Photo To Frequency Split  adds a selectable part of the picture, a full
@@ -8,6 +8,10 @@
                                  own envelope.
     2  Photo Freq                adds a sub-bass oscillator, tooltips, and a
                                  picture panel shaped like the picture.
+    3  Photo Freq 2              adds patches (settings, picture and selected
+                                 part saved to a file), reverse scanning, a
+                                 Stereo Width with a choice of what drives it,
+                                 and Env Amount in percent.
 */
 #ifndef PTF_VARIANT
  #define PTF_VARIANT 0
@@ -21,11 +25,19 @@ namespace PluginConfig
     /** Sub oscillator, tooltips, picture panel that follows the picture's shape. */
     constexpr bool isFreq = (PTF_VARIANT >= 2);
 
-    constexpr const char* displayName = PTF_VARIANT >= 2 ? "Photo Freq"
+    /** Patches, reverse scan, stereo source, Env Amount in percent. */
+    constexpr bool isFreq2 = (PTF_VARIANT >= 3);
+
+    constexpr const char* displayName = PTF_VARIANT >= 3 ? "Photo Freq 2"
+                                      : PTF_VARIANT == 2 ? "Photo Freq"
                                       : PTF_VARIANT == 1 ? "Photo To Frequency Split"
                                                          : "Photo To Frequency";
 
-    constexpr const char* stateType = PTF_VARIANT >= 2 ? "PhotoFreq"
+    constexpr const char* stateType = PTF_VARIANT >= 3 ? "PhotoFreq2"
+                                    : PTF_VARIANT == 2 ? "PhotoFreq"
                                     : PTF_VARIANT == 1 ? "PhotoToFrequencySplit"
                                                        : "PhotoToFrequency";
+
+    /** File extension of Photo Freq 2 patches. */
+    constexpr const char* patchExtension = ".pfpatch";
 }

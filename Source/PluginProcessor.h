@@ -58,6 +58,21 @@ public:
     bool areTooltipsEnabled() const;
     void setTooltipsEnabled (bool);
 
+    /** Photo Freq 2: saves every setting, the picture and the selected part of
+        it to a patch file. Message thread only. Returns false if it can't be written. */
+    bool savePatch (const juce::File&);
+
+    /** Photo Freq 2: loads a patch written by savePatch. The Tooltips switch is
+        left as it is. Returns false if the file isn't a Photo Freq 2 patch. */
+    bool loadPatch (const juce::File&);
+
+    /** Name of the last patch saved or loaded, or empty. Message thread only. */
+    juce::String getPatchName() const;
+
+    /** Photo Freq 2: Env Amount is in percent; 100% moves the cutoff this many
+        octaves, which is the whole audible range (20 Hz to 20 kHz). */
+    static constexpr float envAmountFullOctaves = 10.0f;
+
     static constexpr int previewNoteId = 1000;
     static constexpr float previewPitch = 48.0f;   // C3
 
@@ -66,6 +81,11 @@ public:
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     EngineParams readParams() const;
+
+    /** The parameters plus the picture. Patches keep the picture lossless (PNG);
+        DAW projects use a JPEG to stay small. */
+    juce::ValueTree createStateTree (bool forPatch);
+    bool applyStateTree (juce::ValueTree);
 
     SynthEngine engine;
 
@@ -98,6 +118,9 @@ private:
         // Photo Freq only.
         std::atomic<float>* oscOn = nullptr, *subOn = nullptr, *subWave = nullptr, *subOctave = nullptr,
                           * subFine = nullptr, *subDrive = nullptr, *subLevel = nullptr;
+
+        // Photo Freq 2 only.
+        std::atomic<float>* reverse = nullptr, *stereoSource = nullptr;
     } params;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhotoToFrequencyProcessor)

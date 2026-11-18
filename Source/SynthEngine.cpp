@@ -155,7 +155,7 @@ float SynthEngine::getScanPosition() const noexcept
         if (v.active && (newest == nullptr || v.order > newest->order))
             newest = &v;
 
-    return newest != nullptr ? shared.regionLeft + (float) newest->position * shared.regionWidth : -1.0f;
+    return newest != nullptr ? shared.regionLeft + newest->scanPoint * shared.regionWidth : -1.0f;
 }
 
 //==============================================================================
@@ -324,6 +324,7 @@ void SynthEngine::Voice::start (int id, float midiPitch, float vel, uint64_t sta
     velocity = vel;
     position = 0.0;
     direction = 1.0;
+    scanPoint = 0.0f;
     active = true;
     cachedPartials = -1;
     ampEnvelope.start();
@@ -414,13 +415,22 @@ void SynthEngine::Voice::render (float* left, float* right, int numSamples,
             release();
     }
 
+    // Reversed, the head starts at the right edge and travels left. Ping-Pong
+    // and One-Shot behave the same way, just mirrored.
+    double place = p.reverse ? 1.0 - position : position;
+
+    if (p.loopMode == EngineParams::loop)
+        place -= std::floor (place);   // reversed, the start (1.0) is the same point as 0.0
+
+    scanPoint = (float) juce::jlimit (0.0, 1.0, place);
+
     int column0, column1;
     float blend;
 
     if (p.loopMode == EngineParams::loop)
     {
         // The last column of the region blends back into its first.
-        const double c = (double) shared.columnStart + position * (double) shared.columnLength;
+        const double c = (double) shared.columnStart + place * (double) shared.columnLength;
         column0 = juce::jmin (columns - 1, (int) c);
         column1 = column0 + 1;
         blend = (float) (c - (double) column0);
@@ -432,7 +442,7 @@ void SynthEngine::Voice::render (float* left, float* right, int numSamples,
     {
         const double c = juce::jmin ((double) (columns - 1),
                                      (double) shared.columnStart
-                                       + juce::jlimit (0.0, 1.0, position) * juce::jmax (0.0, (double) shared.columnLength - 1.0));
+                                       + juce::jlimit (0.0, 1.0, place) * juce::jmax (0.0, (double) shared.columnLength - 1.0));
         column0 = juce::jmin (columns - 2, (int) c);
         column1 = column0 + 1;
         blend = (float) (c - (double) column0);
@@ -517,7 +527,16 @@ void SynthEngine::Voice::render (float* left, float* right, int numSamples,
                     amplitude *= filterGain;
                 }
 
-                const float angle = (sample (panTable, i) * p.width + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
+                float pan;
+
+                if (p.stereoSource == EngineParams::stereoAlternate)
+                    pan = (k & 1) != 0 ? 1.0f : -1.0f;                 // rows alternate left and right
+                else if (p.stereoSource == EngineParams::stereoPitch)
+                    pan = numPartials > 1 ? -1.0f + 2.0f * (float) k / (float) (numPartials - 1) : 0.0f;   // low left, high right
+                else
+                    pan = sample (panTable, i);                         // red left, blue right
+
+                const float angle = (pan * p.width + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
 
                 // Equal-power pan, scaled so a centred partial is at unity in both channels.
                 targetL = amplitude * std::cos (angle) * juce::MathConstants<float>::sqrt2;
