@@ -921,7 +921,10 @@ int main (int argc, char* argv[])
         check (! plugin.loadPatch (otherFile) && std::abs (value ("regionLeft") - 0.2f) < 0.001f,
                "a state from another plugin is refused");
 
-        check (! plugin.savePatch (juce::File ("/dev/null/cannot/save.pfpatch")) && plugin.getPatchName() == "Warm Garden",
+        // A folder inside an ordinary file can't be created on any system.
+        const auto blocker = tempDir.getChildFile ("not-a-folder.txt");
+        blocker.replaceWithText ("x");
+        check (! plugin.savePatch (blocker.getChildFile ("cannot").getChildFile ("save.pfpatch")) && plugin.getPatchName() == "Warm Garden",
                "a failed save is reported and keeps the old patch name");
 
         // The editor has the patch buttons, the Reverse switch and the Stereo Source menu.
